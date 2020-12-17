@@ -32,6 +32,10 @@ require_once($CFG->dirroot.'/lib/filelib.php');
 require_once($CFG->dirroot.'/repository/lib.php');
 require_once('templatable_form_element.php');
 
+if (class_exists('HTML_QuickForm')) {
+    HTML_QuickForm::registerRule('editorimagevalidate', 'callback', '_validate', 'MoodleQuickForm_editor');
+}
+
 /**
  * Editor element
  *
@@ -127,6 +131,10 @@ class MoodleQuickForm_editor extends HTML_QuickForm_element implements templatab
                 $caller->setType($arg[0] . '[format]', PARAM_ALPHANUM);
                 $caller->setType($arg[0] . '[itemid]', PARAM_INT);
                 break;
+        }
+        $name = $this->getName();
+        if ($name && $caller->elementExists($name)) {
+            $caller->addRule($name, get_string('missingalttag'), 'editorimagevalidate', null, 'client');
         }
         return parent::onQuickFormEvent($event, $arg, $caller);
     }
@@ -479,6 +487,21 @@ class MoodleQuickForm_editor extends HTML_QuickForm_element implements templatab
         $str .= '</div>';
 
         return $str;
+    }
+
+    /**
+     * Validate image from html.
+     *
+     * @param array $elementvalue
+     * @param null $attributes
+     * @return bool
+     */
+    public static function _validate($elementvalue, $attributes = null) {
+        $regexp = '/(<img(?!.*?alt=([\'"]).*?\2)[^>]*)(>)/';
+        if (!empty($elementvalue['text']) && preg_match($regexp, $elementvalue['text'], $matches)) {
+            return false;
+        }
+        return true;
     }
 
     public function export_for_template(renderer_base $output) {
