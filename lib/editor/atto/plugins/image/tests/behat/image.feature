@@ -54,6 +54,8 @@ Feature: Add images to Atto
     Given I log in as "admin"
     And I open my profile in edit mode
     And I set the field "Description" to "<p>Image: <img src='/nothing/here'>.</p>"
+    When I press "Update profile"
+    Then I should see "Some images in this content(highlighted) are lacking proper alt text. Please edit the image properties to fix this."
     And I select the text in the "Description" Atto editor
     When I click on "Insert or edit image" "button"
     Then the field "Enter URL" matches value "/nothing/here"
