@@ -113,7 +113,6 @@ final class question_history_view_test extends \advanced_testcase {
         $pagevars = [
             'qpage' => 0,
             'qperpage' => DEFAULT_QUESTIONS_PER_PAGE,
-            'cat' => $cat->id . ',' . $cat->contextid,
             'tabname' => 'questions'
         ];
         // Generate the view.
