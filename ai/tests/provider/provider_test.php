@@ -1567,8 +1567,10 @@ final class provider_test extends \advanced_testcase {
         $config = [
             'enableuserratelimit' => true,
             'userratelimit' => 3,
+            'globalratelimittimeunit' => HOURSECS,
             'enableglobalratelimit' => true,
             'globalratelimit' => 5,
+            'userratelimittimeunit' => HOURSECS,
         ];
         $provider = $this->manager->create_provider_instance(
                 classname: '\aiprovider_openai\provider',

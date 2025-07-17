@@ -44,6 +44,11 @@ define('YEARSECS', 31536000);
 /**
  * Time constant - the number of seconds in a week
  */
+define('MONTHSECS', 2592000);
+
+/**
+ * Time constant - the number of seconds in a week
+ */
 define('WEEKSECS', 604800);
 
 /**

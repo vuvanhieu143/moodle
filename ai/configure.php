@@ -85,6 +85,7 @@ if ($mform->is_cancelled()) {
 
 if ($data = $mform->get_data()) {
     $data = (array)$data;
+    print_object($data);die;
     $manager = \core\di::get(\core_ai\manager::class);
     $aiprovider = $data['aiprovider'];
     $providername = $data['name'];
