@@ -81,7 +81,6 @@ class quiz_statistics_report extends report_base {
         $variantno = optional_param('variant', null, PARAM_INT);
         $whichattempts = optional_param('whichattempts', $quiz->grademethod, PARAM_INT);
         $whichtries = optional_param('whichtries', question_attempt::LAST_TRY, PARAM_ALPHA);
-
         $pageoptions = [];
         $pageoptions['id'] = $cm->id;
         $pageoptions['mode'] = 'statistics';
@@ -217,12 +216,15 @@ class quiz_statistics_report extends report_base {
             }
 
             $this->output_individual_question_data($quiz, $questionstats->for_subq($qid, $variantno));
-            $this->output_individual_question_response_analysis($questionstats->for_subq($qid, $variantno)->question,
-                                                                $variantno,
-                                                                $questionstats->for_subq($qid, $variantno)->s,
-                                                                $reporturl,
-                                                                $qubaids,
-                                                                $whichtries);
+            $this->output_individual_question_response_analysis(
+                $questionstats->for_subq($qid, $variantno)->question,
+                $variantno,
+                $questionstats->for_subq($qid, $variantno)->s,
+                $reporturl,
+                $qubaids,
+                $whichtries,
+                $qid
+            );
             // Back to overview link.
             echo $OUTPUT->box('<a href="' . $reporturl->out() . '">' .
                               get_string('backtoquizreport', 'quiz_statistics') . '</a>',
@@ -383,9 +385,18 @@ class quiz_statistics_report extends report_base {
      * @param moodle_url       $reporturl the URL to redisplay this report.
      * @param qubaid_condition $qubaids
      * @param string           $whichtries
+     * @param int|null        $specificquestionid if specified,
+     *                         only analyse responses to this question id (used when reporting on a sub-question).
      */
-    protected function output_individual_question_response_analysis($question, $variantno, $s, $reporturl, $qubaids,
-                                                                    $whichtries = question_attempt::LAST_TRY) {
+    protected function output_individual_question_response_analysis(
+        $question,
+        $variantno,
+        $s,
+        $reporturl,
+        $qubaids,
+        $whichtries = question_attempt::LAST_TRY,
+        $specificquestionid = null
+    ) {
         global $OUTPUT;
 
         if (!question_bank::get_qtype($question->qtype, false)->can_analyse_responses()) {
@@ -427,8 +438,7 @@ class quiz_statistics_report extends report_base {
         }
 
         $responesanalyser = new analyser($question, $whichtries);
-        $responseanalysis = $responesanalyser->load_cached($qubaids, $whichtries);
-
+        $responseanalysis = $responesanalyser->load_cached($qubaids, $whichtries, $specificquestionid);
         $qtable->question_setup($reporturl, $question, $s, $responseanalysis);
         if ($this->table->is_downloading()) {
             $exportclass->output_headers($qtable->headers);
@@ -467,6 +477,11 @@ class quiz_statistics_report extends report_base {
             if (is_null($structureanalysis)) {
                 $this->table->add_separator();
             } else {
+                // Note: when not downloading, $limitvariants above is true, so structure_analysis_for_one_slot()
+                // has already collapsed all the individual sub-questions/variants/versions for this slot into
+                // a single calculated_question_summary row (see all_calculated_for_qubaid_condition::
+                // all_subq_and_variant_stats_for_slot()). That summary row links to the full, per-version/
+                // per-variant breakdown. When downloading, $limitvariants is false and every row is wanted.
                 foreach ($structureanalysis as $row) {
                     $bgcssclass = '';
                     // The only way to identify in this point of the report if a row is a summary row

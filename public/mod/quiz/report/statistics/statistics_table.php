@@ -185,8 +185,12 @@ class quiz_statistics_table extends flexible_table {
      * @return string contents of this table cell.
      */
     protected function col_icon($questionstat) {
+        global $OUTPUT;
         if ($this->is_calculated_question_summary($questionstat)) {
             return '';
+        } else if (!empty($questionstat->question->random) || $questionstat->question->qtype === 'random') {
+            return $OUTPUT->pix_icon('random', get_string('random', 'quiz'), 'mod_quiz',
+                    ['class' => 'icon activityicon']);
         } else {
             $questionobject = $questionstat->question;
             return print_question_icon($questionobject);
@@ -216,6 +220,18 @@ class quiz_statistics_table extends flexible_table {
      * @return string contents of this table cell.
      */
     protected function col_qtype($questionstat) {
+        if ($this->is_calculated_question_summary($questionstat)) {
+            return '';
+        }
+        if (!empty($questionstat->question->random) || $questionstat->question->qtype === 'random') {
+            return get_string('random', 'quiz');
+        }
+        if (empty($questionstat->question->qtype)) {
+            return '';
+        }
+        if (!question_bank::qtype_exists($questionstat->question->qtype)) {
+            return question_bank::get_qtype('missingtype')->local_name();
+        }
         return question_bank::get_qtype_name($questionstat->question->qtype);
     }
 
@@ -255,6 +271,7 @@ class quiz_statistics_table extends flexible_table {
                                                                                    $questionstat->variant)]);
             }
         } else {
+            $israndomquestion = !empty($questionstat->question->random);
             if ($questionstat->subquestion && !$questionstat->get_variants()) {
                 // Sub question without variants.
                 $url = new moodle_url($baseurl, ['qid' => $questionstat->questionid]);
@@ -263,7 +280,6 @@ class quiz_statistics_table extends flexible_table {
                 // Question in a slot, we are not on a page showing structural analysis of one slot,
                 // we don't want linking on those pages.
                 $number = $questionstat->question->number;
-                $israndomquestion = $questionstat->question->random;
                 $url = new moodle_url($baseurl, ['slot' => $questionstat->slot]);
 
                 if ($this->is_calculated_question_summary($questionstat)) {

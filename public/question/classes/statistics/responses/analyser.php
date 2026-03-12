@@ -143,22 +143,42 @@ class analyser {
      *
      * @param \qubaid_condition $qubaids    load the analysis of which question usages?
      * @param string            $whichtries load the analysis of which tries?
+     * @param int|null         $specificquestionid if set, only load analysis for this question id, rather than
+     *                                            merging in the analysis of every version of the question.
      * @return analysis_for_question|boolean analysis or false if no cached analysis found.
      */
-    public function load_cached($qubaids, $whichtries) {
+    public function load_cached(\qubaid_condition $qubaids, string $whichtries, ?int $specificquestionid = null): mixed {
         global $DB;
+        // Merge in the analysis of every other version of this question, so switching to a new version
+        // part way through a quiz's life does not lose the responses recorded against older versions.
+        $questionids = $this->get_multiple_question_versions_for_question_id($this->questiondata->id);
+        if (!$questionids) {
+            // No version history found (e.g. a legacy question), fall back to just this question id.
+            $questionids = [$this->questiondata->id];
+        }
+        [$insql, $params] = $this->analysis_query_where($qubaids, $whichtries, $questionids);
+        $sql = "SELECT *
+                  FROM {question_response_analysis}
+                 WHERE hashcode = :hashcode
+                       AND whichtries = :whichtries
+                       AND questionid $insql";
 
-        $timemodified = self::get_last_analysed_time($qubaids, $whichtries);
+        $timemodifieds = $this->get_last_analysed_times_for_questions($qubaids, $whichtries, $questionids);
+        if ($timemodifieds) {
+            [$timemodifiedsinsql, $timemodifiedsinparams] = $DB->get_in_or_equal($timemodifieds, SQL_PARAMS_NAMED);
+            $params += $timemodifiedsinparams;
+            $sql .= " AND timemodified $timemodifiedsinsql";
+        }
         // Variable name 'analyses' is the plural of 'analysis'.
-        $responseanalyses = $DB->get_records('question_response_analysis',
-                ['hashcode' => $qubaids->get_hash_code(), 'whichtries' => $whichtries,
-                        'questionid' => $this->questiondata->id, 'timemodified' => $timemodified]);
+        $responseanalyses = $DB->get_records_sql($sql, $params);
         if (!$responseanalyses) {
             return false;
         }
-
         $analysisids = [];
         foreach ($responseanalyses as $responseanalysis) {
+            if (isset($specificquestionid) && $specificquestionid != $responseanalysis->questionid) {
+                continue;
+            }
             $analysisforsubpart = $this->analysis->get_analysis_for_subpart($responseanalysis->variant, $responseanalysis->subqid);
             $class = $analysisforsubpart->get_response_class($responseanalysis->aid);
             $class->add_response($responseanalysis->response, $responseanalysis->credit);
@@ -176,18 +196,82 @@ class analyser {
         return $this->analysis;
     }
 
+    /**
+     * Build the "hashcode/whichtries/questionid IN (...)" WHERE clause and params shared by every
+     * question_response_analysis lookup in this class.
+     *
+     * @param \qubaid_condition $qubaids     which question usages?
+     * @param string            $whichtries  which tries?
+     * @param array             $questionids which question ids?
+     * @return array [string $questionidinsql, array $params] ready to append to a SELECT ... WHERE.
+     */
+    private function analysis_query_where(\qubaid_condition $qubaids, string $whichtries, array $questionids): array {
+        global $DB;
+        [$insql, $inparams] = $DB->get_in_or_equal($questionids, SQL_PARAMS_NAMED);
+        $params = [
+                'hashcode'   => $qubaids->get_hash_code(),
+                'whichtries' => $whichtries,
+            ] + $inparams;
+        return [$insql, $params];
+    }
 
     /**
      * Find time of non-expired analysis in the database.
      *
      * @param \qubaid_condition $qubaids    check for the analysis of which question usages?
      * @param string            $whichtries check for the analysis of which tries?
+     * @param array|null       $questionids which question ids to check for? Defaults to just this question.
      * @return integer|boolean Time of cached record that matches this qubaid_condition or false if none found.
      */
-    public function get_last_analysed_time($qubaids, $whichtries) {
+    public function get_last_analysed_time(\qubaid_condition $qubaids, string $whichtries, ?array $questionids = null) {
         global $DB;
-        return $DB->get_field('question_response_analysis', 'MAX(timemodified)',
-                ['hashcode' => $qubaids->get_hash_code(), 'whichtries' => $whichtries,
-                        'questionid' => $this->questiondata->id]);
+        $questionids = $questionids ?: [$this->questiondata->id];
+        [$insql, $params] = $this->analysis_query_where($qubaids, $whichtries, $questionids);
+        return $DB->get_field_sql("SELECT MAX(timemodified)
+                                      FROM {question_response_analysis}
+                                     WHERE hashcode = :hashcode
+                                           AND whichtries = :whichtries
+                                           AND questionid $insql", $params);
+    }
+
+    /**
+     * Find the timemodified of each non-expired analysis record for a set of question ids (e.g. all the
+     * versions of one question), so {@see self::load_cached()} can fetch exactly those cached rows.
+     *
+     * @param \qubaid_condition $qubaids    check for the analysis of which question usages?
+     * @param string            $whichtries check for the analysis of which tries?
+     * @param array             $questionids which question ids to check for?
+     * @return array of int timemodified values of non-expired analysis records.
+     */
+    protected function get_last_analysed_times_for_questions(
+        \qubaid_condition $qubaids,
+        string $whichtries,
+        array $questionids
+    ): array {
+        global $DB;
+        [$insql, $params] = $this->analysis_query_where($qubaids, $whichtries, $questionids);
+        return $DB->get_fieldset_sql("SELECT timemodified
+                                         FROM {question_response_analysis}
+                                        WHERE hashcode = :hashcode
+                                              AND whichtries = :whichtries
+                                              AND questionid $insql", $params);
+    }
+
+    /**
+     * Get all question ids that are versions of the given question id.
+     *
+     * @param int $questionid the question id to find versions of.
+     * @return array of int question ids that are versions of the given question id.
+     */
+    public function get_multiple_question_versions_for_question_id(int $questionid): array {
+        global $DB;
+        return $DB->get_fieldset_sql(
+            "SELECT qv2.questionid
+               FROM {question_versions} qv1
+               JOIN {question_versions} qv2
+                    ON qv2.questionbankentryid = qv1.questionbankentryid
+              WHERE qv1.questionid = :questionid",
+            ['questionid' => $questionid]
+        );
     }
 }
