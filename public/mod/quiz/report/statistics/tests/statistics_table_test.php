@@ -30,6 +30,7 @@ require_once($CFG->dirroot . '/mod/quiz/report/statistics/statistics_table.php')
  * @category   test
  * @copyright  2018 Shamim Rezaie <shamim@moodle.com>
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
+ * @covers     \quiz_statistics_table
  */
 final class statistics_table_test extends \advanced_testcase {
 
@@ -84,6 +85,52 @@ final class statistics_table_test extends \advanced_testcase {
         $this->assertEquals(
                 'Some Text − 10',
                 $method->invokeArgs($table, ['Some Text', 10])
+        );
+    }
+
+    /**
+     * Test col_qtype formatting for different question types.
+     *
+     * @covers \quiz_statistics_table::col_qtype
+     */
+    public function test_col_qtype(): void {
+        $table = new quiz_statistics_table();
+        $reflector = new \ReflectionClass('quiz_statistics_table');
+        $method = $reflector->getMethod('col_qtype');
+
+        // 1. Standard question.
+        $stat = new \stdClass();
+        $stat->question = (object) ['qtype' => 'multichoice', 'random' => false];
+        $this->assertEquals(
+            get_string('pluginname', 'qtype_multichoice'),
+            $method->invokeArgs($table, [$stat])
+        );
+
+        // 2. Random question slot (qtype is null or empty, random is true).
+        $randomstat = new \stdClass();
+        $randomstat->question = (object) ['qtype' => null, 'random' => true];
+        $this->assertEquals(
+            get_string('random', 'quiz'),
+            $method->invokeArgs($table, [$randomstat])
+        );
+
+        // 3. Calculated question summary row.
+        $summarystat = new \core_question\statistics\questions\calculated_question_summary(
+            (object) ['id' => 1, 'maxmark' => 1, 'number' => 1, 'qtype' => null, 'random' => true],
+            1,
+            []
+        );
+        $this->assertEquals(
+            '',
+            $method->invokeArgs($table, [$summarystat])
+        );
+
+        // 4. Missing question type.
+        $missingstat = new \stdClass();
+        $missingstat->question = (object) ['qtype' => 'nonexistent_qtype', 'random' => false];
+        $this->assertEquals(
+            get_string('pluginname', 'qtype_missingtype'),
+            $method->invokeArgs($table, [$missingstat])
         );
     }
 }

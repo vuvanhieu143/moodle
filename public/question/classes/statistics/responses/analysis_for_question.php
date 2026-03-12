@@ -111,6 +111,9 @@ class analysis_for_question {
      * @return string[]
      */
     public function get_subpart_ids($variantno) {
+        if (!isset($this->subparts[$variantno])) {
+            $this->initialise_stats_for_variant($variantno);
+        }
         return array_keys($this->subparts[$variantno]);
     }
 
