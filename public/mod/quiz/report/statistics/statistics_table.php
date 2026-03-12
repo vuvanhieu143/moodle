@@ -255,6 +255,7 @@ class quiz_statistics_table extends flexible_table {
                                                                                    $questionstat->variant)]);
             }
         } else {
+            $israndomquestion = !empty($questionstat->question->random);
             if ($questionstat->subquestion && !$questionstat->get_variants()) {
                 // Sub question without variants.
                 $url = new moodle_url($baseurl, ['qid' => $questionstat->questionid]);
@@ -263,7 +264,6 @@ class quiz_statistics_table extends flexible_table {
                 // Question in a slot, we are not on a page showing structural analysis of one slot,
                 // we don't want linking on those pages.
                 $number = $questionstat->question->number;
-                $israndomquestion = $questionstat->question->random;
                 $url = new moodle_url($baseurl, ['slot' => $questionstat->slot]);
 
                 if ($this->is_calculated_question_summary($questionstat)) {

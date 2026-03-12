@@ -20,6 +20,9 @@ use question_attempt;
 use question_bank;
 use question_finder;
 use quiz_statistics_report;
+use mod_quiz\quiz_attempt;
+use mod_quiz\quiz_settings;
+use mod_quiz\tests\question_helper_test_trait;
 
 /**
  * Quiz attempt walk through using data from csv file.
@@ -39,6 +42,8 @@ use quiz_statistics_report;
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 final class stats_from_steps_walkthrough_test extends \mod_quiz\tests\attempt_walkthrough_testcase {
+    use question_helper_test_trait;
+
     /**
      * @var quiz_statistics_report object to do stats calculations.
      */
@@ -432,5 +437,473 @@ final class stats_from_steps_walkthrough_test extends \mod_quiz\tests\attempt_wa
             return [$questions, $quizstats, $questionstats, $qubaids];
         }
         return [$questions, $quizstats, $questionstats, $qubaids];
+    }
+    /**
+     * Data provider for quiz statistics with multiple versions of questions.
+     *
+     * @return array
+     */
+    public static function quiz_statistics_provider(): array {
+        return [
+            'truefalse_two_versions' => [
+                'config' => [
+                    'qtype' => 'truefalse',
+                    'which' => null,
+                    'slots' => 2,
+                    'versions' => 2,
+                    'users' => 2,
+                    'answers' => [
+                        1 => [
+                            1 => 'True',
+                            2 => 'True',
+                        ],
+                        2 => [
+                            1 => 'False',
+                            2 => 'False',
+                        ],
+                    ],
+                    'whichtries' => question_attempt::ALL_TRIES,
+                    'whichattempts' => QUIZ_GRADEAVERAGE,
+                ],
+                'expected' => [
+                    1 => [
+                        'slot' => 1,
+                        's' => 4,
+                        'facility' => 0.5,
+                        'sd' => 0.5773502691896257,
+                        'effectiveweight' => 50.0,
+                        'discriminationindex' => 100.0,
+                        'positions' => 1,
+                        'randomguessscore' => 0.5,
+                        'markaverage' => 0.5,
+                    ],
+                    2 => [
+                        'slot' => 2,
+                        's' => 4,
+                        'facility' => 0.5,
+                        'sd' => 0.5773502691896257,
+                        'effectiveweight' => 50.0,
+                        'discriminationindex' => 100.0,
+                        'positions' => 2,
+                        'randomguessscore' => 0.5,
+                        'markaverage' => 0.5,
+                    ],
+                ],
+            ],
+            'calculatedsimple_two_versions' => [
+                'config' => [
+                    'qtype' => 'calculatedsimple',
+                    'which' => 'sumwithvariants',
+                    'slots' => 1,
+                    'versions' => 2,
+                    'users' => 2,
+                    'answers' => [
+                        1 => [
+                            1 => '10',
+                        ],
+                        2 => [
+                            1 => '999',
+                        ],
+                    ],
+                    'whichtries' => question_attempt::ALL_TRIES,
+                    'whichattempts' => QUIZ_GRADEAVERAGE,
+                ],
+                'expected' => [
+                    1 => [
+                        'slot' => 1,
+                        's' => 4,
+                        'facility' => 0.0,
+                        'sd' => 0.0,
+                        'effectiveweight' => null,
+                        'discriminationindex' => null,
+                        'positions' => 1,
+                        'randomguessscore' => 0,
+                        'markaverage' => 0.0,
+                    ],
+                ],
+            ],
+        ];
+    }
+
+    /**
+     * Test quiz statistics with multiple versions of questions.
+     *
+     * @covers ::get_all_stats_and_analysis
+     * @param array $config
+     * @param array $expected
+     * @dataProvider quiz_statistics_provider
+     */
+    public function test_quiz_statistics_with_multiple_version(array $config, array $expected): void {
+        $this->resetAfterTest();
+
+        [$this->quiz] = $this->build_quiz_with_versions($config);
+        $this->report = new quiz_statistics_report();
+        $questions = $this->report->load_and_initialise_questions_for_calculations($this->quiz);
+        $groupstudentsjoins = new \core\dml\sql_join();
+        [$quizstats, $questionstats] = $this->report->get_all_stats_and_analysis(
+            $this->quiz,
+            $config['whichattempts'],
+            $config['whichtries'],
+            $groupstudentsjoins,
+            $questions
+        );
+        foreach ($expected as $slot => $exp) {
+            $stat = $questionstats->questionstats[$slot];
+            $this->assertEquals($exp['slot'], $stat->slot);
+            $this->assertEquals($exp['s'], $stat->s);
+            $this->assertEqualsWithDelta($exp['facility'], $stat->facility, 0.0001);
+            $this->assertEqualsWithDelta($exp['sd'], $stat->sd, 0.0001);
+            $this->assertEqualsWithDelta($exp['effectiveweight'], $stat->effectiveweight, 0.0001);
+            $this->assertEqualsWithDelta($exp['discriminationindex'], $stat->discriminationindex, 0.0001);
+            $this->assertEquals($exp['positions'], $stat->positions);
+            $this->assertEquals($exp['randomguessscore'], $stat->randomguessscore);
+            $this->assertEqualsWithDelta($exp['markaverage'], $stat->markaverage, 0.0001);
+            if ($stat->variantstats) {
+                $variants = $stat->variantstats;
+                $sum = 0;
+                foreach ($variants as $variant) {
+                    $sum += $variant->s;
+                }
+                $this->assertEquals($stat->s, $sum);
+            }
+            // Every version of the question must appear as its own sub-question, and their attempts
+            // must add up to the slot total (none merged away, none double-counted).
+            $subqids = $stat->get_sub_question_ids();
+            $this->assertCount($config['versions'], $subqids);
+            $substotal = 0;
+            foreach ($subqids as $subqid) {
+                $substotal += $questionstats->for_subq($subqid)->s;
+            }
+            $this->assertEquals($stat->s, $substotal);
+        }
+    }
+
+    /**
+     * Build a quiz with multiple versions of questions and simulate attempts.
+     *
+     * @param array $config
+     * @return array [$quiz]
+     */
+    protected function build_quiz_with_versions(array $config): array {
+        /** @var \mod_quiz_generator $quizgenerator */
+        $quizgenerator = $this->getDataGenerator()->get_plugin_generator('mod_quiz');
+        /** @var \core_question_generator $questiongenerator */
+        $questiongenerator = $this->getDataGenerator()->get_plugin_generator('core_question');
+        // Users.
+        $users = [];
+        for ($u = 0; $u < $config['users']; $u++) {
+            $users[] = $this->getDataGenerator()->create_user();
+        }
+        $this->course = $this->getDataGenerator()->create_course();
+        $coursecontext = \context_course::instance($this->course->id);
+        $cat = $questiongenerator->create_question_category([
+            'name' => 'Test category',
+            'context' => $coursecontext->id,
+        ]);
+        // Create base questions (version 1).
+        $questions = [];
+        for ($slot = 1; $slot <= $config['slots']; $slot++) {
+            $q = $questiongenerator->create_question(
+                $config['qtype'],
+                $config['which'],
+                ['category' => $cat->id]
+            );
+            $questions[$slot] = $q;
+        }
+
+        $quiz = $quizgenerator->create_instance([
+            'course' => $this->course->id,
+            'grade' => 100,
+            'sumgrades' => $config['slots'],
+            'preferredbehaviour' => 'immediatefeedback',
+        ]);
+
+        foreach ($questions as $q) {
+            quiz_add_quiz_question($q->id, $quiz);
+        }
+
+        // Chronological version loop.
+        for ($version = 1; $version <= $config['versions']; $version++) {
+            foreach ($users as $user) {
+                $this->setUser($user);
+                $quizobj = quiz_settings::create($quiz->id);
+                $attemptnumber = quiz_get_user_attempts($quiz->id, $user->id, 'all', true);
+                $attemptnumber = count($attemptnumber) + 1;
+                $attempt = quiz_prepare_and_start_new_attempt($quizobj, $attemptnumber, null);
+                $attemptobj = quiz_attempt::create($attempt->id);
+                $postdata = $questiongenerator
+                    ->get_simulated_post_data_for_questions_in_usage(
+                        $attemptobj->get_question_usage(),
+                        $config['answers'][$version],
+                        true
+                    );
+                $timenow = time();
+                $attemptobj->process_submitted_actions($timenow, false, $postdata);
+                $attemptobj->process_submit($timenow, false);
+                $attemptobj->process_grade_submission($timenow);
+            }
+            // Create next version.
+            if ($version < $config['versions']) {
+                $versionedslots = $config['versionedslots'] ?? array_keys($questions);
+                foreach ($versionedslots as $slot) {
+                    $questiongenerator->update_question($questions[$slot], $config['which']);
+                }
+            }
+        }
+        return [$quiz];
+    }
+
+    /**
+     * When only some slots in a quiz get a new question version, only those slots should end up with
+     * per-version sub-question stats; the others must be left alone.
+     *
+     * This specifically guards against a slot-scoping regression where the "does this slot have more
+     * than one version?" flag was read using the wrong slot number (a stale loop variable), which would
+     * either wrongly merge, or wrongly fail to merge, sibling slots' stats.
+     *
+     * @covers ::calculate
+     */
+    public function test_only_one_slot_has_multiple_versions(): void {
+        $this->resetAfterTest();
+
+        [$this->quiz] = $this->build_quiz_with_versions([
+            'qtype' => 'truefalse',
+            'which' => null,
+            'slots' => 2,
+            'versions' => 2,
+            'users' => 2,
+            'versionedslots' => [2], // Only slot 2 is edited into a new version.
+            'answers' => [
+                1 => [1 => 'True', 2 => 'True'],
+                2 => [1 => 'True', 2 => 'False'],
+            ],
+        ]);
+        $this->report = new quiz_statistics_report();
+        $questions = $this->report->load_and_initialise_questions_for_calculations($this->quiz);
+        [, $questionstats] = $this->report->get_all_stats_and_analysis(
+            $this->quiz,
+            QUIZ_GRADEAVERAGE,
+            question_attempt::ALL_TRIES,
+            new \core\dml\sql_join(),
+            $questions
+        );
+
+        // Slot 1 was never re-versioned, so it must have no per-version sub-question breakdown.
+        $this->assertEmpty($questionstats->for_slot(1)->get_sub_question_ids());
+        $this->assertEquals(4, $questionstats->for_slot(1)->s);
+
+        // Slot 2 was re-versioned, so its attempts must be split across exactly its two question versions,
+        // and those sub-question attempt counts must add up to the slot's own total.
+        $subqids = $questionstats->for_slot(2)->get_sub_question_ids();
+        $this->assertCount(2, $subqids);
+        $substotal = 0;
+        foreach ($subqids as $subqid) {
+            $substotal += $questionstats->for_subq($subqid)->s;
+        }
+        $this->assertEquals($questionstats->for_slot(2)->s, $substotal);
+        $this->assertEquals(4, $questionstats->for_slot(2)->s);
+    }
+
+    /**
+     * A question can be edited more than once. Every version's responses must still be counted, not
+     * just the latest one or the first two - this guards against any accidental "two versions" special
+     * casing (e.g. always looking only at index 0 and the last index).
+     *
+     * @covers ::calculate
+     */
+    public function test_three_versions_are_all_counted(): void {
+        $this->resetAfterTest();
+
+        [$this->quiz] = $this->build_quiz_with_versions([
+            'qtype' => 'truefalse',
+            'which' => null,
+            'slots' => 1,
+            'versions' => 3,
+            'users' => 2,
+            'answers' => [
+                1 => [1 => 'True'],
+                2 => [1 => 'False'],
+                3 => [1 => 'True'],
+            ],
+        ]);
+        $this->report = new quiz_statistics_report();
+        $questions = $this->report->load_and_initialise_questions_for_calculations($this->quiz);
+        [, $questionstats] = $this->report->get_all_stats_and_analysis(
+            $this->quiz,
+            QUIZ_GRADEAVERAGE,
+            question_attempt::ALL_TRIES,
+            new \core\dml\sql_join(),
+            $questions
+        );
+
+        $subqids = $questionstats->for_slot(1)->get_sub_question_ids();
+        $this->assertCount(3, $subqids);
+        $substotal = 0;
+        foreach ($subqids as $subqid) {
+            $substotal += $questionstats->for_subq($subqid)->s;
+        }
+        // 2 users x 3 versions = 6 attempts, all counted, none merged or dropped.
+        $this->assertEquals(6, $substotal);
+        $this->assertEquals($questionstats->for_slot(1)->s, $substotal);
+    }
+
+    /**
+     * If a question is edited before anyone has attempted it, only one version has ever actually been
+     * seen in an attempt, so no per-version sub-question breakdown should be created for that slot - it
+     * would be pure noise (and would wrongly suggest an "old" version had been attempted when it never was).
+     *
+     * @covers ::calculate
+     */
+    public function test_version_created_before_any_attempts_is_not_flagged_as_multiple_versions(): void {
+        $this->resetAfterTest();
+        $this->course = $this->getDataGenerator()->create_course();
+        $coursecontext = \context_course::instance($this->course->id);
+
+        /** @var \mod_quiz_generator $quizgenerator */
+        $quizgenerator = $this->getDataGenerator()->get_plugin_generator('mod_quiz');
+        /** @var \core_question_generator $questiongenerator */
+        $questiongenerator = $this->getDataGenerator()->get_plugin_generator('core_question');
+        $cat = $questiongenerator->create_question_category(['context' => $coursecontext->id]);
+        $question = $questiongenerator->create_question('truefalse', null, ['category' => $cat->id]);
+
+        $quiz = $quizgenerator->create_instance([
+            'course' => $this->course->id,
+            'grade' => 100,
+            'sumgrades' => 1,
+            'preferredbehaviour' => 'immediatefeedback',
+        ]);
+        quiz_add_quiz_question($question->id, $quiz);
+
+        // Edit the question (creating version 2) before any attempt is made.
+        $questiongenerator->update_question($question);
+
+        $user = $this->getDataGenerator()->create_user();
+        $this->setUser($user);
+        $quizobj = quiz_settings::create($quiz->id);
+        $attempt = quiz_prepare_and_start_new_attempt($quizobj, 1, null);
+        $attemptobj = quiz_attempt::create($attempt->id);
+        $postdata = $questiongenerator->get_simulated_post_data_for_questions_in_usage(
+            $attemptobj->get_question_usage(),
+            [1 => 'True'],
+            true
+        );
+        $timenow = time();
+        $attemptobj->process_submitted_actions($timenow, false, $postdata);
+        $attemptobj->process_submit($timenow, false);
+        $attemptobj->process_grade_submission($timenow);
+
+        $this->report = new quiz_statistics_report();
+        $questions = $this->report->load_and_initialise_questions_for_calculations($quiz);
+        [, $questionstats] = $this->report->get_all_stats_and_analysis(
+            $quiz,
+            QUIZ_GRADEAVERAGE,
+            question_attempt::ALL_TRIES,
+            new \core\dml\sql_join(),
+            $questions
+        );
+
+        $this->assertEmpty($questionstats->for_slot(1)->get_sub_question_ids());
+        $this->assertEquals(1, $questionstats->for_slot(1)->s);
+    }
+
+    /**
+     * A random question slot where the underlying picked question itself
+     * gets a new version between attempts. Both versions attempted must be counted separately, exactly the
+     * way two different randomly-picked questions already are - a random slot being "randomised" must not
+     * suppress the ordinary per-version breakdown for whichever question it happened to pick.
+     *
+     * @covers ::calculate
+     */
+    public function test_random_question_with_multiple_versions_of_the_picked_question(): void {
+        $this->resetAfterTest();
+        $this->setAdminUser();
+        $this->course = $this->getDataGenerator()->create_course();
+        $coursecontext = \context_course::instance($this->course->id);
+
+        /** @var \mod_quiz_generator $quizgenerator */
+        $quizgenerator = $this->getDataGenerator()->get_plugin_generator('mod_quiz');
+        /** @var \core_question_generator $questiongenerator */
+        $questiongenerator = $this->getDataGenerator()->get_plugin_generator('core_question');
+        $cat = $questiongenerator->create_question_category(['context' => $coursecontext->id]);
+        $question = $questiongenerator->create_question('truefalse', null, ['category' => $cat->id]);
+
+        $quiz = $quizgenerator->create_instance([
+            'course' => $this->course->id,
+            'grade' => 100,
+            'sumgrades' => 1,
+            'preferredbehaviour' => 'immediatefeedback',
+        ]);
+        $this->add_random_questions($quiz->id, 0, $cat->id, 1);
+
+        $user1 = $this->getDataGenerator()->create_user();
+        $user2 = $this->getDataGenerator()->create_user();
+
+        // User 1 attempts the random slot, forced to pick version 1 of the only question available.
+        $this->setUser($user1);
+        $attempt1 = $quizgenerator->create_attempt($quiz->id, $user1->id, [1 => $question->id]);
+        $quizgenerator->submit_responses($attempt1->id, [1 => 'True'], false, true);
+
+        // The question is edited into a new version.
+        $newversion = $questiongenerator->update_question($question);
+
+        // User 2 attempts the same random slot, forced to pick the new version.
+        $this->setUser($user2);
+        $attempt2 = $quizgenerator->create_attempt($quiz->id, $user2->id, [1 => $newversion->id]);
+        $quizgenerator->submit_responses($attempt2->id, [1 => 'False'], false, true);
+
+        $this->report = new quiz_statistics_report();
+        $questions = $this->report->load_and_initialise_questions_for_calculations($quiz);
+        [, $questionstats] = $this->report->get_all_stats_and_analysis(
+            $quiz,
+            QUIZ_GRADEAVERAGE,
+            question_attempt::ALL_TRIES,
+            new \core\dml\sql_join(),
+            $questions
+        );
+
+        $subqids = array_map('intval', $questionstats->for_slot(1)->get_sub_question_ids());
+        $this->assertCount(2, $subqids);
+
+        $this->assertContains($question->id, $subqids);
+        $this->assertContains($newversion->id, $subqids);
+        $this->assertEquals(1, $questionstats->for_subq($question->id)->s);
+        $this->assertEquals(1, $questionstats->for_subq($newversion->id)->s);
+        $this->assertEquals(2, $questionstats->for_slot(1)->s);
+    }
+
+    /**
+     * The public get_last_analysed_time() API must keep working for callers (e.g. other qtype plugins'
+     * tests) that only pass the original two arguments and expect a single timestamp back, not an array.
+     *
+     * @covers \core_question\statistics\responses\analyser::get_last_analysed_time
+     */
+    public function test_get_last_analysed_time_is_backwards_compatible(): void {
+        $this->resetAfterTest();
+
+        [$this->quiz] = $this->build_quiz_with_versions([
+            'qtype' => 'truefalse',
+            'which' => null,
+            'slots' => 1,
+            'versions' => 1,
+            'users' => 1,
+            'answers' => [1 => [1 => 'True']],
+        ]);
+        $this->report = new quiz_statistics_report();
+        $questions = $this->report->load_and_initialise_questions_for_calculations($this->quiz);
+        $groupstudentsjoins = new \core\dml\sql_join();
+        $this->report->get_all_stats_and_analysis(
+            $this->quiz,
+            QUIZ_GRADEAVERAGE,
+            question_attempt::ALL_TRIES,
+            $groupstudentsjoins,
+            $questions
+        );
+        $qubaids = quiz_statistics_qubaids_condition($this->quiz->id, $groupstudentsjoins);
+
+        $question = reset($questions);
+        $responesstats = new \core_question\statistics\responses\analyser($question);
+        $time = $responesstats->get_last_analysed_time($qubaids, question_attempt::ALL_TRIES);
+        $this->assertIsNotArray($time);
+        $this->assertTimeCurrent($time);
     }
 }

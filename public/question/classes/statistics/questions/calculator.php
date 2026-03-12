@@ -97,13 +97,30 @@ class calculator {
 
         if ($lateststeps) {
             $this->progress->start_progress('', count($lateststeps), 1);
+            // For each slot, collect all unique question ids (the slot's own nominal question id, plus the
+            // id actually answered in each step) seen in the latest attempts. If more than one distinct id
+            // turns up for a (non-random) slot, different versions of that question were attempted.
+            $slotquestionids = [];
+            foreach ($lateststeps as $step) {
+                $slotquestionids[$step->slot][$this->stats->for_slot($step->slot)->questionid] = true;
+                $slotquestionids[$step->slot][$step->questionid] = true;
+            }
+            $slothasmultipleversions = array_map(fn($questionids) => count($questionids) > 1, $slotquestionids);
+
+            // Question ids actually attempted in each multi-version slot, collected below and recorded
+            // as that slot's "sub-questions" once the main loop has seen every step.
+            $slotversionids = [];
+
             // Compute the statistics of position, and for random questions, work
             // out which questions appear in which positions.
             foreach ($lateststeps as $step) {
-
                 $this->progress->increment_progress();
 
-                $israndomquestion = ($step->questionid != $this->stats->for_slot($step->slot)->questionid);
+                // A slot's nominal question id is forced to 0 only for random questions (see
+                // quiz_statistics_report::load_and_initialise_questions_for_calculations), so this reliably
+                // tells random slots apart from ordinary (possibly multi-version) ones.
+                $israndomquestion = $this->stats->for_slot($step->slot)->questionid == 0;
+                $hasmultipleversionsinslot = !$israndomquestion && $slothasmultipleversions[$step->slot];
                 $breakdownvariants = !$israndomquestion && $this->stats->for_slot($step->slot)->break_down_by_variant();
                 // If this is a variant we have not seen before create a place to store stats calculations for this variant.
                 if ($breakdownvariants && !$this->stats->has_slot($step->slot, $step->variant)) {
@@ -118,31 +135,19 @@ class calculator {
 
                 // If this is a random question do the calculations for sub question stats.
                 if ($israndomquestion) {
-                    if (!$this->stats->has_subq($step->questionid)) {
-                        $this->stats->initialise_for_subq($step);
-                    } else if ($this->stats->for_subq($step->questionid)->maxmark != $step->maxmark) {
-                        $this->stats->for_subq($step->questionid)->differentweights = true;
-                    }
-
-                    // If this is a variant of this subq we have not seen before create a place to store stats calculations for it.
-                    if (!$this->stats->has_subq($step->questionid, $step->variant)) {
-                        $this->stats->initialise_for_subq($step, $step->variant);
-                    }
-
-                    $this->initial_steps_walker($step, $this->stats->for_subq($step->questionid), $summarks, false);
-
-                    // Extra stuff we need to do in this loop for subqs to keep track of where they need to be displayed later.
-
-                    $number = $this->stats->for_slot($step->slot)->question->number;
-                    $this->stats->for_subq($step->questionid)->usedin[$number] = $number;
-
-                    // Keep track of which random questions are actually selected from each pool of questions that random
-                    // questions are pulled from.
+                    $this->process_subq_stats($step, $summarks);
+                    // Only for random questions.
                     $randomselectorstring = $this->stats->for_slot($step->slot)->random_selector_string();
                     if (!isset($this->randomselectors[$randomselectorstring])) {
                         $this->randomselectors[$randomselectorstring] = array();
                     }
                     $this->randomselectors[$randomselectorstring][$step->questionid] = $step->questionid;
+                }
+                // If we have multiple versions of questions in this slot.
+                // We need to do the calculations for sub question stats for all questions in this slot.
+                if ($hasmultipleversionsinslot) {
+                    $slotversionids[$step->slot][] = $step->questionid;
+                    $this->process_subq_stats($step, $summarks);
                 }
             }
             $this->progress->end_progress();
@@ -158,6 +163,8 @@ class calculator {
             foreach ($this->stats->subquestions as $qid => $subquestion) {
                 $this->progress->increment_progress();
                 $subquestion->maxmark = $this->stats->for_subq($qid)->maxmark;
+                // Loaded straight from the DB, so, unlike slot-level questions, this has no "random" flag yet.
+                $subquestion->random = false;
                 $this->stats->for_subq($qid)->question = $subquestion;
                 $this->stats->for_subq($qid)->randomguessscore = $this->get_random_guess_score($subquestion);
 
@@ -192,7 +199,9 @@ class calculator {
                 $nextslot = ($nextslotindex > $maxindex) ? false : $slots[$nextslotindex];
 
                 $this->initial_question_walker($this->stats->for_slot($slot));
-
+                if (!empty($slotversionids[$slot])) {
+                    $this->stats->for_slot($slot)->subquestions = implode(',', array_unique($slotversionids[$slot]));
+                }
                 // The rest of this loop is to finish working out where randomly selected question stats should be displayed.
                 if ($this->stats->for_slot($slot)->question->random) {
                     $randomselectorstring = $this->stats->for_slot($slot)->random_selector_string();
@@ -260,6 +269,26 @@ class calculator {
         // All finished.
         $this->progress->end_progress();
         return $this->stats;
+    }
+
+    /**
+     * Do the calculations for sub question stats for all questions in this slot.
+     *
+     * @param object $step        the state to add to the statistics.
+     * @param float[] $summarks   of the sum of marks for each question usage, indexed by question usage id
+     */
+    private function process_subq_stats(object $step, array &$summarks): void {
+        if (!$this->stats->has_subq($step->questionid)) {
+            $this->stats->initialise_for_subq($step);
+        } else if ($this->stats->for_subq($step->questionid)->maxmark != $step->maxmark) {
+            $this->stats->for_subq($step->questionid)->differentweights = true;
+        }
+        if (!$this->stats->has_subq($step->questionid, $step->variant)) {
+            $this->stats->initialise_for_subq($step, $step->variant);
+        }
+        $this->initial_steps_walker($step, $this->stats->for_subq($step->questionid), $summarks, false);
+        $number = $this->stats->for_slot($step->slot)->question->number;
+        $this->stats->for_subq($step->questionid)->usedin[$number] = $number;
     }
 
     /**
