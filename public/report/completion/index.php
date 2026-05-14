@@ -44,6 +44,7 @@ $courseid = required_param('course', PARAM_INT);
 $dataformat = optional_param('dataformat', '', PARAM_ALPHA);
 $sort = optional_param('sort','',PARAM_ALPHA);
 $edituser = optional_param('edituser', 0, PARAM_INT);
+$completionfilter = optional_param('completionfilter', '', PARAM_ALPHA);
 
 
 $course = $DB->get_record('course', array('id' => $courseid), '*', MUST_EXIST);
@@ -52,6 +53,10 @@ $context = context_course::instance($course->id);
 $url = new moodle_url('/report/completion/index.php', array('course'=>$course->id));
 $PAGE->set_url($url);
 $PAGE->set_pagelayout('report');
+$url->param('course', $courseid);
+if ($completionfilter) {
+    $url->param('completionfilter', $completionfilter);
+}
 
 $firstnamesort = ($sort == 'firstname');
 $download = ($dataformat !== '');
@@ -159,8 +164,26 @@ if ($download) {
     $pluginname = get_string('pluginname', 'report_completion');
     report_helper::print_report_selector($pluginname);
 
-    // Handle groups (if enabled)
-    groups_print_course_menu($course, $CFG->wwwroot.'/report/completion/index.php?course='.$course->id);
+    // Handle groups (if enabled).
+    $currentparams = ['course' => $course->id];
+    if ($completionfilter) {
+        $currentparams['completionfilter'] = $completionfilter;
+    }
+    if ($group) {
+        $currentparams['group'] = $group;
+    }
+    $defaulturl = new moodle_url('/report/completion/index.php', $currentparams);
+    groups_print_course_menu($course, $defaulturl);
+
+    // Completion status filter dropdown.
+    $filteroptions = [
+        '' => get_string('completionfilter_allresults', 'report_completion'),
+        'completed' => get_string('completionfilter_completedcourse', 'report_completion'),
+        'notcompleted' => get_string('completionfilter_notcompletedcourse', 'report_completion'),
+    ];
+    $filterselect = new single_select($defaulturl, 'completionfilter', $filteroptions, $completionfilter, null, 'completionfilter');
+    $filterselect->set_label(get_string('completionfilter_showonly', 'report_completion'));
+    echo html_writer::div($OUTPUT->render($filterselect), 'completion-filter-selector mb-2');
 }
 
 if ($sifirst !== 'all') {
@@ -183,21 +206,34 @@ if (!empty($USER->preference['ilast'])) {
 }
 
 // Generate where clause
-$where = array();
-$where_params = array();
+$where = [];
+$whereparams = [];
 
 if ($sifirst !== 'all') {
     $where[] = $DB->sql_like('u.firstname', ':sifirst', false, false);
-    $where_params['sifirst'] = $sifirst.'%';
+    $whereparams['sifirst'] = $sifirst . '%';
 }
 
 if ($silast !== 'all') {
     $where[] = $DB->sql_like('u.lastname', ':silast', false, false);
-    $where_params['silast'] = $silast.'%';
+    $whereparams['silast'] = $silast . '%';
+}
+
+// Completion status filter.
+if ($completionfilter === 'completed') {
+    $where[] = 'u.id IN (SELECT cc.userid
+                           FROM {course_completions} cc
+                          WHERE cc.course = :cccourseid AND cc.timecompleted IS NOT NULL)';
+    $whereparams['cccourseid'] = $course->id;
+} else if ($completionfilter === 'notcompleted') {
+    $where[] = 'u.id NOT IN (SELECT cc.userid
+                               FROM {course_completions} cc
+                              WHERE cc.course = :cccourseid AND cc.timecompleted IS NOT NULL)';
+    $whereparams['cccourseid'] = $course->id;
 }
 
 // Get user match count
-$total = $completion->get_num_tracked_users(implode(' AND ', $where), $where_params, $group);
+$total = $completion->get_num_tracked_users(implode(' AND ', $where), $whereparams, $group);
 
 // Total user count
 $grandtotal = $completion->get_num_tracked_users('', array(), $group);
@@ -215,7 +251,7 @@ $progress = array();
 if ($total) {
     $progress = $completion->get_progress_all(
         implode(' AND ', $where),
-        $where_params,
+        $whereparams,
         $group,
         $firstnamesort ? 'u.firstname ASC' : 'u.lastname ASC',
         $download ? 0 : COMPLETION_REPORT_PAGE,
@@ -226,6 +262,9 @@ if ($total) {
 
 // Build link for paging
 $link = $CFG->wwwroot.'/report/completion/index.php?course='.$course->id;
+if ($completionfilter) {
+    $link .= '&amp;completionfilter=' . $completionfilter;
+}
 if (strlen($sort)) {
     $link .= '&amp;sort='.$sort;
 }
@@ -428,6 +467,9 @@ if (!$download) {
     print '<th scope="col" class="completion-sortchoice" style="clear: both;">';
 
     $sistring = "&amp;silast={$silast}&amp;sifirst={$sifirst}";
+    if ($completionfilter) {
+        $sistring .= "&amp;completionfilter={$completionfilter}";
+    }
 
     if ($firstnamesort) {
         print
@@ -742,7 +784,6 @@ if ($download) {
 }
 
 print '</table>';
-
 echo $OUTPUT->download_dataformat_selector(
     get_string('downloadas', 'table'),
     $url->out_omit_querystring(),

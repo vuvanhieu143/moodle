@@ -25,6 +25,10 @@
  */
 
 $string['clicktomarkusercomplete'] = 'Click to mark user complete';
+$string['completionfilter_allresults'] = 'All results';
+$string['completionfilter_completedcourse'] = 'Completed course';
+$string['completionfilter_notcompletedcourse'] = 'Not completed course';
+$string['completionfilter_showonly'] = 'Show only';
 $string['completion:view'] = 'View course completion report';
 $string['completiondate'] = 'Completion date';
 $string['id'] = 'ID';
