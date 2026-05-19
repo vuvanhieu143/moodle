@@ -1124,6 +1124,8 @@ audio.mediaplugin_html5audio {
 
 .moodle-dialogue-base .moodle-dialogue .moodle-dialogue-bd {
     padding: 0.5rem;
+    max-height: calc(100vh - 120px);
+    overflow-y: auto;
     body {
         background-color: $body-bg;
     }
