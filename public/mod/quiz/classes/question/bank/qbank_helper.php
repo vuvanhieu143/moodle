@@ -248,10 +248,16 @@ class qbank_helper {
      * @param context_module $quizcontext the context of this quiz.
      * @param int $slotid optional, if passed only load the data for this one slot (if it is in this quiz).
      * @param qubaid_condition $qubaids attempts to consider when avoiding picking repeats of random questions.
+     * @param array $usedquestions [questionid => number of times used count.] List of questions that have been used,
      * @return int the id of the question to use.
      */
-    public static function choose_question_for_redo(int $quizid, context_module $quizcontext,
-            int $slotid, qubaid_condition $qubaids): int {
+    public static function choose_question_for_redo(
+        int $quizid,
+        context_module $quizcontext,
+        int $slotid,
+        qubaid_condition $qubaids,
+        array $usedquestions
+    ): int {
         $slotdata = self::get_question_structure($quizid, $quizcontext, $slotid);
         $slotdata = reset($slotdata);
 
@@ -261,7 +267,7 @@ class qbank_helper {
         }
 
         // Random question.
-        $randomloader = new random_question_loader($qubaids, []);
+        $randomloader = new random_question_loader($qubaids, $usedquestions);
         $fitlercondition = $slotdata->filtercondition;
         $filter = $fitlercondition['filter'] ?? [];
         $newqusetionid = $randomloader->get_next_filtered_question_id($filter);
