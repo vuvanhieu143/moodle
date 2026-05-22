@@ -89,8 +89,16 @@ final class qbank_helper_test extends \advanced_testcase {
         $slot = reset($slots);
         $this->assertEquals(3, count(qbank_helper::get_version_options($question->id)));
         $this->assertDebuggingCalled();
-        $this->assertEquals($question->id, qbank_helper::choose_question_for_redo(
-                $quiz->id, $context, $slot->id, new \qubaid_list([])));
+        $this->assertEquals(
+            $question->id,
+            qbank_helper::choose_question_for_redo(
+                $quiz->id,
+                $context,
+                $slot->id,
+                new \qubaid_list([]),
+                []
+            ),
+        );
 
         // Create another version.
         $questiongenerator->update_question($numq, null, ['name' => 'This is the latest version']);
@@ -101,8 +109,16 @@ final class qbank_helper_test extends \advanced_testcase {
         $quizobj->load_questions();
         $questions = $quizobj->get_questions();
         $question = reset($questions);
-        $this->assertEquals($question->id, qbank_helper::choose_question_for_redo(
-                $quiz->id, $context, $slot->id, new \qubaid_list([])));
+        $this->assertEquals(
+            $question->id,
+            qbank_helper::choose_question_for_redo(
+                $quiz->id,
+                $context,
+                $slot->id,
+                new \qubaid_list([]),
+                []
+            )
+        );
     }
 
     /**

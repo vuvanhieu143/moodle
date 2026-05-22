@@ -137,11 +137,122 @@ class quiz_attempt {
         $this->attempt = $attempt;
         $this->quizobj = new quiz_settings($quiz, $cm, $course);
         $this->gradecalculator = $this->quizobj->get_grade_calculator();
+        if (
+            $this->attempt->preview &&
+            $missingquestions = $this->get_missing_questions_on_usageid($attempt->uniqueid)
+        ) {
+            $this->check_for_and_replace_missing_question($missingquestions, $this->quizobj);
+        }
 
         if ($loadquestions) {
             $this->load_questions();
             $this->gradecalculator->set_slots($this->slots);
         }
+    }
+
+    /**
+     * Check and replace missing question when a deleted question used in an quiz attempt (Random questions).
+     *
+     * @param array $missingquestions List of questions has been deleted.
+     * @param quiz_settings $quizobj Get the {@see quiz_settings} object for this quiz.
+     */
+    public function check_for_and_replace_missing_question(array $missingquestions, quiz_settings $quizobj): void {
+        global $DB;
+        $transaction = $DB->start_delegated_transaction();
+        $newquestionused = [];
+        foreach ($missingquestions as $oldquestion) {
+            $qubaids = new  \qubaid_list([$oldquestion->questionusageid]);
+            $newquestionid = qbank_helper::choose_question_for_redo(
+                $quizobj->get_quizid(),
+                $quizobj->get_context(),
+                $oldquestion->slotid,
+                $qubaids,
+                $newquestionused
+            );
+            $oldquestion->newquestionid = $newquestionid;
+            $newquestionused[$newquestionid] = 1;
+        }
+
+        // Delete all related question attempt data of the missing questions.
+        $qasids = array_map(
+            function ($question) {
+                return $question->qasid;
+            },
+            $missingquestions
+        );
+        [$qasidssql, $qasidsparams] = $DB->get_in_or_equal($qasids);
+        $DB->delete_records_select('question_attempt_step_data', "attemptstepid $qasidssql", $qasidsparams);
+        $DB->delete_records_select('question_attempt_steps', "id $qasidssql", $qasidsparams);
+
+        $qaids = array_map(
+            function ($question) {
+                return $question->questionattemptid;
+            },
+            $missingquestions
+        );
+        [$qaidssql, $qaidsparams] = $DB->get_in_or_equal($qaids);
+        $DB->delete_records_select('question_attempts', "id $qaidssql", $qaidsparams);
+
+        foreach ($missingquestions as $oldquestion) {
+            $qubaids = new  \qubaid_list([$oldquestion->questionusageid]);
+            $newquestion = question_bank::load_question(
+                $oldquestion->newquestionid,
+                $quizobj->shuffleanswers ?? 0
+            );
+            $quba = question_engine::load_questions_usage_by_activity($oldquestion->questionusageid);
+            // Choose the variant.
+            if ($newquestion->get_num_variants() == 1) {
+                $variant = 1;
+            } else {
+                $variantstrategy = new \core_question\engine\variants\least_used_strategy(
+                    $quba,
+                    $qubaids
+                );
+                $variant = $variantstrategy->choose_variant(
+                    $newquestion->get_num_variants(),
+                    $newquestion->get_variants_selection_seed()
+                );
+            }
+            // Temporarily disable the emoticon filter while starting the question.
+            // During question initialisation, Moodle generates question summaries which
+            // internally call format_text(). The emoticon filter accesses $PAGE->theme,
+            // but at this stage the page theme/output system may not yet be fully
+            // initialised, causing a coding_exception from moodle_page::magic_get_theme().
+            // The filter is re-enabled immediately afterwards to avoid affecting normal
+            // page rendering.
+            filter_set_global_state('emoticon', TEXTFILTER_OFF);
+            // Add the new question to the existing usage in the same slot.
+            $quba->add_question($newquestion, null, $oldquestion->slot);
+            // Start the question.
+            $quba->start_question($oldquestion->slot, $variant);
+            question_engine::save_questions_usage_by_activity($quba);
+            $this->fire_attempt_question_restarted_event($oldquestion->slot, $newquestion->id);
+            filter_set_global_state('emoticon', TEXTFILTER_ON);
+        }
+        $transaction->allow_commit();
+    }
+
+    /**
+     * Get the list of missing question in a question usage.
+     *
+     * @param int $usageid the attempt usage id.
+     * @return array The list of question that has been deleted on this usage.
+     */
+    public static function get_missing_questions_on_usageid(int $usageid): array {
+        global $DB;
+        return $DB->get_records_sql(
+            'SELECT quea.id as questionattemptid, quea.questionid, quea.slot,
+                    quea.questionusageid, qs.id as slotid, qas.id as qasid
+               FROM {quiz_attempts} qa
+               JOIN {question_usages} qu ON qu.id = qa.uniqueid
+               JOIN {question_attempts} quea ON quea.questionusageid = qu.id
+               JOIN {question_attempt_steps} qas ON qas.questionattemptid = quea.id
+               JOIN {quiz_slots} qs ON qs.quizid = qa.quiz AND quea.slot = qs.slot
+          LEFT JOIN {question} q ON q.id = quea.questionid
+              WHERE qa.uniqueid = :usageid
+                    AND q.id IS NULL',
+            ['usageid' => $usageid]
+        );
     }
 
     /**
@@ -1768,8 +1879,13 @@ class quiz_attempt {
         $transaction = $DB->start_delegated_transaction();
 
         // Add the question to the usage. It is important we do this before we choose a variant.
-        $newquestionid = qbank_helper::choose_question_for_redo($this->get_quizid(),
-                    $this->get_quizobj()->get_context(), $this->slots[$slot]->id, $qubaids);
+        $newquestionid = qbank_helper::choose_question_for_redo(
+            $this->get_quizid(),
+            $this->get_quizobj()->get_context(),
+            $this->slots[$slot]->id,
+            $qubaids,
+            []
+        );
         $newquestion = question_bank::load_question($newquestionid, $this->get_quiz()->shuffleanswers);
         $newslot = $this->quba->add_question_in_place_of_other($slot, $newquestion);
 
