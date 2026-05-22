@@ -2517,12 +2517,22 @@ class quiz_attempt {
         $slots = $this->get_slots();
 
         // Check if all slots have corresponding version information.
+        $missingslots = [];
         foreach ($slots as $slot) {
             if (!isset($versioninformation[$slot])) {
-                $this->handle_missing_question_attempt();
+                $missingslots[] = $slot;
             }
         }
+
+        // Replace missing random questions only for in-progress previews; otherwise delete the attempt.
         $anychanges = false;
+        if ($missingslots) {
+            if (!$this->attempt->preview || $this->attempt->state === self::FINISHED || !$this->is_preview_user()) {
+                $this->handle_missing_question_attempt();
+            }
+            $this->replace_missing_random_questions($missingslots);
+            $anychanges = true;
+        }
         foreach ($versioninformation as $slotinformation) {
             if ($slotinformation->currentquestionid == $slotinformation->newquestionid) {
                 continue;
@@ -2551,6 +2561,56 @@ class quiz_attempt {
                 $DB->update_record('quiz_attempts', $this->attempt);
                 $this->recompute_final_grade();
             }
+        }
+    }
+
+    /**
+     * Replace missing random questions in an in-progress preview attempt.
+     *
+     * If any missing slot is not a random slot, this falls back to {@see handle_missing_question_attempt()}.
+     *
+     * @param int[] $missingslots Slot numbers whose question is missing from the attempt.
+     */
+    private function replace_missing_random_questions(array $missingslots): void {
+        $slotstructure = qbank_helper::get_question_structure($this->get_quizid(), $this->get_context());
+
+        // Fixed (non-random) slots have no category pool to pick from, so abort the attempt instead.
+        foreach ($missingslots as $slot) {
+            if (!isset($slotstructure[$slot]) || !$slotstructure[$slot]->random) {
+                $this->handle_missing_question_attempt();
+            }
+        }
+
+        // Count remaining valid questions as already used so replacement picks stay distinct within this attempt.
+        $usedquestions = [];
+        foreach (array_diff($this->get_slots(), $missingslots) as $slot) {
+            $questionid = $this->get_question_attempt($slot)->get_question_id();
+            $usedquestions[$questionid] = ($usedquestions[$questionid] ?? 0) + 1;
+        }
+
+        $qubaids = new \qubaid_list([$this->get_uniqueid()]);
+        $randomloader = new \core_question\local\bank\random_question_loader($qubaids, $usedquestions);
+
+        // Pick all replacement IDs before mutating $this->quba so an empty category leaves the attempt untouched.
+        $newquestionids = [];
+        foreach ($missingslots as $slot) {
+            $slotdata = $slotstructure[$slot];
+            $newquestionid = $randomloader->get_next_filtered_question_id($slotdata->filtercondition['filter'] ?? []);
+            if ($newquestionid === null) {
+                throw new moodle_exception('notenoughrandomquestions', 'quiz', $this->get_quizobj()->view_url(), $slotdata);
+            }
+            $newquestionids[$slot] = $newquestionid;
+        }
+
+        // Replace slots in-place without keeping old deleted steps while preserving each slot's maxmark.
+        foreach ($newquestionids as $slot => $newquestionid) {
+            $newquestion = question_bank::load_question($newquestionid, $this->get_quiz()->shuffleanswers);
+            $variant = $newquestion->get_num_variants() == 1 ? 1 : (new \core_question\engine\variants\least_used_strategy(
+                $this->quba,
+                $qubaids,
+            ))->choose_variant($newquestion->get_num_variants(), $newquestion->get_variants_selection_seed());
+            $this->quba->add_question_in_place_of_other($slot, $newquestion, null, false);
+            $this->quba->start_question($slot, $variant);
         }
     }
 

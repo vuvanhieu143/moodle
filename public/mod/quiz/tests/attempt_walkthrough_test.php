@@ -319,8 +319,23 @@ final class attempt_walkthrough_test extends \advanced_testcase {
                 $this->fail('Exception expected due to preview is deleted');
             }
         } catch (\moodle_exception $e) {
-            // Verify the expected exception message.
-            $this->assertEquals($expectedupdateattempterror, $e->getMessage());
+            if ($expectedupdateattempterror === 'notenoughrandomquestions' && $expectedslotfewquestions) {
+                $structure = $quizobj->get_structure();
+                $slot = $structure->get_slot_by_number($expectedslotfewquestions);
+                $expectedmessage = get_string(
+                    'notenoughrandomquestions',
+                    'quiz',
+                    (object) [
+                        'category' => $slot->category,
+                        'name' => get_string('random', 'quiz'),
+                        'id' => $slot->slotid,
+                    ],
+                );
+                $this->assertEquals($expectedmessage, $e->getMessage());
+            } else {
+                // Verify the expected exception message.
+                $this->assertEquals($expectedupdateattempterror, $e->getMessage());
+            }
         }
 
         // An exception is expected if an existing random question lacks sufficient questions in the category due to
@@ -367,7 +382,7 @@ final class attempt_walkthrough_test extends \advanced_testcase {
                     1 => 'q1v1',
                     2 => 'q2v1',
                 ],
-                get_string('attempterrorcontentchange', 'quiz'),
+                null,
             ],
             'Delete only latest versions for both q1 and q2; quiz preview not available' => [
                 ['q1v2', 'q2v2'],
@@ -385,7 +400,7 @@ final class attempt_walkthrough_test extends \advanced_testcase {
                     1 => 'q1v1',
                     2 => 'q2v1',
                 ],
-                get_string('attempterrorcontentchange', 'quiz'),
+                'notenoughrandomquestions',
                 1,
             ],
             'Delete all question versions for q2 only; quiz preview not available' => [
@@ -407,6 +422,181 @@ final class attempt_walkthrough_test extends \advanced_testcase {
                 ],
             ],
         ];
+    }
+
+    /**
+     * Create a quiz preview with random questions across categories/behaviours, delete them, and verify replacement.
+     */
+    public function test_quiz_attempt_walkthrough_when_a_random_question_is_deleted(): void {
+        global $DB, $SITE;
+        $this->resetAfterTest();
+        $this->setAdminUser();
+
+        $quizgenerator = $this->getDataGenerator()->get_plugin_generator('mod_quiz');
+        $quiz = $quizgenerator->create_instance([
+            'course' => $SITE->id,
+            'questionsperpage' => 0,
+            'grade' => 100.0,
+            'sumgrades' => 7,
+            'shuffleanswers' => 1,
+            'preferredbehaviour' => 'interactive',
+        ]);
+
+        // Create three categories covering deferred/interactive, manualgraded (essay), and interactivecountback (match).
+        $questiongenerator = $this->getDataGenerator()->get_plugin_generator('core_question');
+        $cat1 = $questiongenerator->create_question_category();
+        $cat2 = $questiongenerator->create_question_category();
+        $cat3 = $questiongenerator->create_question_category();
+
+        $q1 = $questiongenerator->create_question('truefalse', null, ['category' => $cat1->id]);
+        $q2 = $questiongenerator->create_question('essay', null, ['category' => $cat2->id]);
+        $q3 = $questiongenerator->create_question('match', null, ['category' => $cat3->id]);
+
+        $this->add_random_questions($quiz->id, 1, $cat1->id, 1);
+        $this->add_random_questions($quiz->id, 1, $cat2->id, 1);
+        $this->add_random_questions($quiz->id, 1, $cat3->id, 1);
+
+        // Custom maxmark on slot 1 must survive replacement.
+        $quizobj = quiz_settings::create($quiz->id);
+        $structure = $quizobj->get_structure();
+        $structure->update_slot_maxmark($structure->get_slot_by_number(1), 5.0);
+        $quizobj = quiz_settings::create($quiz->id);
+
+        $attempt = quiz_prepare_and_start_new_attempt($quizobj, 1, null);
+        $attemptobj = quiz_attempt::create($attempt->id);
+        $oldqaid = $attemptobj->get_question_attempt(1)->get_database_id();
+        $attemptobj->process_submitted_actions(time(), false, [1 => ['answer' => 1]]);
+        $this->assertGreaterThan(1, $DB->count_records('question_attempt_steps', ['questionattemptid' => $oldqaid]));
+        $this->assertEquals('interactivecountback', $attemptobj->get_question_attempt(3)->get_behaviour_name());
+
+        // Empty category fails cleanly with notenoughrandomquestions rather than coding_exception.
+        foreach ([$q1->id, $q3->id] as $qid) {
+            question_delete_question($qid);
+        }
+        try {
+            quiz_attempt::create($attempt->id)->update_questions_to_new_version_if_changed();
+            $this->fail('Expected notenoughrandomquestions when category is empty');
+        } catch (\moodle_exception $e) {
+            $this->assertEquals('notenoughrandomquestions', $e->errorcode);
+        }
+
+        // Recover slots 1 and 3 with new questions (including interactivecountback), preserving maxmark and cleaning old steps.
+        $rep1 = $questiongenerator->create_question('essay', null, ['category' => $cat1->id]);
+        $rep3 = $questiongenerator->create_question('match', null, ['category' => $cat3->id]);
+        quiz_attempt::create($attempt->id)->update_questions_to_new_version_if_changed();
+
+        // Also delete slot 2 (essay / manualgraded) with a replacement ready and finish the recovered preview.
+        $rep2 = $questiongenerator->create_question('shortanswer', null, ['category' => $cat2->id]);
+        question_delete_question($q2->id);
+        quiz_attempt::create($attempt->id)->update_questions_to_new_version_if_changed();
+
+        $attemptobj = quiz_attempt::create($attempt->id);
+        $this->assertEquals($rep1->id, $attemptobj->get_question_attempt(1)->get_question_id());
+        $this->assertEquals(5.0, $attemptobj->get_question_attempt(1)->get_max_mark());
+        $this->assertEquals(1, $DB->count_records('question_attempt_steps', ['questionattemptid' => $oldqaid]));
+        $this->assertEquals($rep2->id, $attemptobj->get_question_attempt(2)->get_question_id());
+        $this->assertEquals($rep3->id, $attemptobj->get_question_attempt(3)->get_question_id());
+        $this->assertEquals('interactivecountback', $attemptobj->get_question_attempt(3)->get_behaviour_name());
+
+        $now = time();
+        $attemptobj->process_submit($now, false);
+        $attemptobj->process_grade_submission($now);
+        $this->assertTrue($attemptobj->is_finished());
+    }
+
+    /**
+     * Verify same-category distinct replacement and fallback deletion for non-preview, finished, or fixed-slot attempts.
+     */
+    public function test_quiz_attempt_missing_random_same_category_and_fallbacks(): void {
+        global $DB, $SITE;
+        $this->resetAfterTest();
+        $this->setAdminUser();
+
+        $quizgenerator = $this->getDataGenerator()->get_plugin_generator('mod_quiz');
+        $questiongenerator = $this->getDataGenerator()->get_plugin_generator('core_question');
+        $assertupdateerror = function (int $attemptid, string $expectedcode): void {
+            try {
+                quiz_attempt::create($attemptid)->update_questions_to_new_version_if_changed();
+                $this->fail("Expected {$expectedcode} exception");
+            } catch (\moodle_exception $e) {
+                $this->assertEquals($expectedcode, $e->errorcode);
+            }
+        };
+
+        // Same-category quiz with 3 random slots: insufficient replacement questions must not partially mutate or duplicate.
+        $cat = $questiongenerator->create_question_category();
+        $q1 = $questiongenerator->create_question('truefalse', null, ['category' => $cat->id]);
+        $q2 = $questiongenerator->create_question('essay', null, ['category' => $cat->id]);
+        $q3 = $questiongenerator->create_question('shortanswer', null, ['category' => $cat->id]);
+
+        $quiz = $quizgenerator->create_instance([
+            'course' => $SITE->id,
+            'questionsperpage' => 0,
+            'grade' => 100.0,
+            'sumgrades' => 3,
+        ]);
+        $this->add_random_questions($quiz->id, 1, $cat->id, 3);
+        $quizobj = quiz_settings::create($quiz->id);
+        $attempt = quiz_prepare_and_start_new_attempt($quizobj, 1, null);
+
+        foreach ([$q1->id, $q2->id, $q3->id] as $qid) {
+            question_delete_question($qid);
+        }
+        $rep1 = $questiongenerator->create_question('essay', null, ['category' => $cat->id]);
+        $assertupdateerror($attempt->id, 'notenoughrandomquestions');
+
+        $rep2 = $questiongenerator->create_question('shortanswer', null, ['category' => $cat->id]);
+        $rep3 = $questiongenerator->create_question('truefalse', null, ['category' => $cat->id]);
+        $attemptobj = quiz_attempt::create($attempt->id);
+        $attemptobj->update_questions_to_new_version_if_changed();
+
+        $replacedids = [
+            $attemptobj->get_question_attempt(1)->get_question_id(),
+            $attemptobj->get_question_attempt(2)->get_question_id(),
+            $attemptobj->get_question_attempt(3)->get_question_id(),
+        ];
+        sort($replacedids);
+        $expectedids = [$rep1->id, $rep2->id, $rep3->id];
+        sort($expectedids);
+        $this->assertEquals($expectedids, $replacedids);
+
+        // Deleting one slot when no unused question exists must not reuse the other 2 slots.
+        question_delete_question($attemptobj->get_question_attempt(1)->get_question_id());
+        $assertupdateerror($attempt->id, 'notenoughrandomquestions');
+
+        // Fallbacks: non-preview attempt, finished preview, and fixed-slot preview all abort the attempt.
+        $fallbackcat = $questiongenerator->create_question_category();
+        $fallbackq1 = $questiongenerator->create_question('truefalse', null, ['category' => $fallbackcat->id]);
+        $fallbackquiz = $quizgenerator->create_instance(['course' => $SITE->id, 'grade' => 100.0, 'sumgrades' => 1]);
+        $this->add_random_questions($fallbackquiz->id, 1, $fallbackcat->id, 1);
+        $fallbackquizobj = quiz_settings::create($fallbackquiz->id);
+
+        $student = $this->getDataGenerator()->create_and_enrol($SITE, 'student');
+        $studentattempt = quiz_prepare_and_start_new_attempt($fallbackquizobj, 1, null, false, [], [], $student->id);
+        $DB->delete_records('question', ['id' => $fallbackq1->id]);
+        $DB->delete_records('question_versions', ['questionid' => $fallbackq1->id]);
+        $assertupdateerror($studentattempt->id, 'attempterrorcontentchange');
+        $this->assertFalse($DB->record_exists('quiz_attempts', ['id' => $studentattempt->id]));
+
+        $fallbackq2 = $questiongenerator->create_question('truefalse', null, ['category' => $fallbackcat->id]);
+        $finishedpreview = quiz_prepare_and_start_new_attempt($fallbackquizobj, 1, null);
+        $finishedobj = quiz_attempt::create($finishedpreview->id);
+        $now = time();
+        $finishedobj->process_submit($now, false);
+        $finishedobj->process_grade_submission($now);
+        $DB->delete_records('question', ['id' => $fallbackq2->id]);
+        $DB->delete_records('question_versions', ['questionid' => $fallbackq2->id]);
+        $assertupdateerror($finishedpreview->id, 'attempterrorcontentchange');
+        $this->assertFalse($DB->record_exists('quiz_attempts', ['id' => $finishedpreview->id]));
+
+        $fixedq = $questiongenerator->create_question('truefalse', null, ['category' => $fallbackcat->id]);
+        $fixedquiz = $quizgenerator->create_instance(['course' => $SITE->id, 'grade' => 100.0, 'sumgrades' => 1]);
+        quiz_add_quiz_question($fixedq->id, $fixedquiz);
+        $fixedpreview = quiz_prepare_and_start_new_attempt(quiz_settings::create($fixedquiz->id), 1, null);
+        $DB->delete_records('question', ['id' => $fixedq->id]);
+        $DB->delete_records('question_versions', ['questionid' => $fixedq->id]);
+        $assertupdateerror($fixedpreview->id, 'attempterrorcontentchange');
+        $this->assertFalse($DB->record_exists('quiz_attempts', ['id' => $fixedpreview->id]));
     }
 
     /**
