@@ -115,3 +115,129 @@ Feature: Preview a quiz as a teacher
     And "input[type=checkbox][name$=choice0]:checked" "css_element" should not exist
     And "input[type=checkbox][name$=choice1]:checked" "css_element" should not exist
     And "input[type=checkbox][name$=choice2]:checked" "css_element" should not exist
+
+  @javascript
+  Scenario: Replacing deleted random questions across categories in an interactive quiz preview
+    Given the following "activities" exist:
+      | activity | name   | course | idnumber | preferredbehaviour | questionsperpage |
+      | quiz     | Quiz 4 | C1     | quiz4    | interactive        | 0                |
+    And the following "question categories" exist:
+      | contextlevel    | reference | name         |
+      | Activity module | quiz4     | Random cat 1 |
+      | Activity module | quiz4     | Random cat 2 |
+    And the following "questions" exist:
+      | questioncategory | qtype | name     | template |
+      | Random cat 1     | match | Match Q1 | foursubq |
+    And the following "questions" exist:
+      | questioncategory | qtype | name     | questiontext        |
+      | Random cat 2     | essay | Essay Q1 | Essay original text |
+    And quiz "Quiz 4" contains the following questions:
+      | question | page | randomcategory |
+      | Random 1 | 1    | Random cat 1   |
+      | Random 2 | 1    | Random cat 2   |
+    And I am on the "Quiz 4" "mod_quiz > View" page logged in as "teacher"
+    And I press "Preview quiz"
+    And I should see "Classify the animals."
+    And I should see "Essay original text"
+    When I am on the "Quiz 4" "mod_quiz > question bank" page
+    And I apply question bank filter "Category" with value "Random cat 1"
+    And I choose "Delete" action for "Match Q1" in the question bank
+    And I click on "Delete" "button" in the "Delete question?" "dialogue"
+    And I apply question bank filter "Category" with value "Random cat 2"
+    And I choose "Delete" action for "Essay Q1" in the question bank
+    And I click on "Delete" "button" in the "Delete question?" "dialogue"
+    And the following "questions" exist:
+      | questioncategory | qtype     | name              | questiontext               |
+      | Random cat 1     | truefalse | Replacement TF 1  | Replacement truefalse text |
+      | Random cat 2     | essay     | Replacement Essay | Replacement essay text     |
+    And I am on the "Quiz 4" "mod_quiz > View" page
+    And I press "Continue the last preview"
+    Then I should see "Replacement truefalse text"
+    And I should see "Replacement essay text"
+    And I should not see "Classify the animals."
+    And I should not see "Essay original text"
+
+  @javascript
+  Scenario: Replenishing a category after deleting all randomized questions in an in-progress preview
+    Given the following "activities" exist:
+      | activity | name   | course | idnumber | questionsperpage |
+      | quiz     | Quiz 5 | C1     | quiz5    | 0                |
+    And the following "question categories" exist:
+      | contextlevel    | reference | name         |
+      | Activity module | quiz5     | Random cat 3 |
+    And the following "questions" exist:
+      | questioncategory | qtype     | name     | questiontext     |
+      | Random cat 3     | truefalse | Rand TF1 | First rand text  |
+      | Random cat 3     | truefalse | Rand TF2 | Second rand text |
+      | Random cat 3     | truefalse | Rand TF3 | Third rand text  |
+    And quiz "Quiz 5" contains the following questions:
+      | question | page | randomcategory |
+      | Random 1 | 1    | Random cat 3   |
+      | Random 2 | 1    | Random cat 3   |
+      | Random 3 | 1    | Random cat 3   |
+    And I am on the "Quiz 5" "mod_quiz > View" page logged in as "teacher"
+    And I press "Preview quiz"
+    And I should see "First rand text"
+    And I should see "Second rand text"
+    And I should see "Third rand text"
+    When I am on the "Quiz 5" "mod_quiz > question bank" page
+    And I apply question bank filter "Category" with value "Random cat 3"
+    And I choose "Delete" action for "Rand TF1" in the question bank
+    And I click on "Delete" "button" in the "Delete question?" "dialogue"
+    And I choose "Delete" action for "Rand TF2" in the question bank
+    And I click on "Delete" "button" in the "Delete question?" "dialogue"
+    And I choose "Delete" action for "Rand TF3" in the question bank
+    And I click on "Delete" "button" in the "Delete question?" "dialogue"
+    And the following "questions" exist:
+      | questioncategory | qtype     | name    | questiontext         |
+      | Random cat 3     | truefalse | New TF1 | First replaced text  |
+      | Random cat 3     | truefalse | New TF2 | Second replaced text |
+      | Random cat 3     | truefalse | New TF3 | Third replaced text  |
+    And I am on the "Quiz 5" "mod_quiz > View" page
+    And I press "Continue the last preview"
+    Then I should see "First replaced text"
+    And I should see "Second replaced text"
+    And I should see "Third replaced text"
+    And I should not see "First rand text"
+
+  @javascript @_switch_window
+  Scenario: Refreshing an open quiz preview tab after replacing deleted random questions in another tab
+    Given the following "activities" exist:
+      | activity | name   | course | idnumber | questionsperpage |
+      | quiz     | Quiz 6 | C1     | quiz6    | 0                |
+    And the following "question categories" exist:
+      | contextlevel    | reference | name             |
+      | Activity module | quiz6     | Default category |
+    And the following "question categories" exist:
+      | contextlevel    | reference | name         | questioncategory |
+      | Activity module | quiz6     | Sub category | Default category |
+    And the following "questions" exist:
+      | questioncategory | qtype     | name      | questiontext         |
+      | Default category | truefalse | Quiz TF 1 | First truefalse text |
+      | Sub category     | essay     | Sub Essay | First essay text     |
+    And quiz "Quiz 6" contains the following questions:
+      | question | page | randomcategory   |
+      | Random 1 | 1    | Default category |
+      | Random 2 | 1    | Sub category     |
+    And I am on the "Quiz 6" "mod_quiz > View" page logged in as "teacher"
+    And I press "Preview quiz"
+    And I should see "First truefalse text"
+    And I should see "First essay text"
+    When I open a tab named "qbanktab" on the "Quiz 6" "mod_quiz > question bank" page
+    And I apply question bank filter "Category" with value "Default category"
+    And I choose "Delete" action for "Quiz TF 1" in the question bank
+    And I click on "Delete" "button" in the "Delete question?" "dialogue"
+    And I apply question bank filter "Category" with value "Sub category"
+    And I choose "Delete" action for "Sub Essay" in the question bank
+    And I click on "Delete" "button" in the "Delete question?" "dialogue"
+    And the following "questions" exist:
+      | questioncategory | qtype     | name         | questiontext        |
+      | Default category | essay     | Quiz Essay 2 | Replaced essay text |
+      | Sub category     | truefalse | Sub TF 2     | Replaced TF text    |
+    And I switch to the main tab
+    And I reload the page
+    Then I should see "Replaced essay text"
+    And I should see "Replaced TF text"
+    And I should not see "First truefalse text"
+    And I should not see "First essay text"
+    And I close all opened windows
