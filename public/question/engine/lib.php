@@ -233,7 +233,16 @@ abstract class question_engine {
             return new qbehaviour_missing($qa, $preferredbehaviour);
         }
         $class = 'qbehaviour_' . $behaviour;
-        return new $class($qa, $preferredbehaviour);
+        try {
+            return new $class($qa, $preferredbehaviour);
+        } catch (coding_exception $e) {
+            // Allow loading deleted questions whose stored behaviour rejects qtype_missingtype_question.
+            if ($qa->get_question(false) instanceof qtype_missingtype_question) {
+                self::load_behaviour_class('missing');
+                return new qbehaviour_missing($qa, $preferredbehaviour);
+            }
+            throw $e;
+        }
     }
 
     /**
