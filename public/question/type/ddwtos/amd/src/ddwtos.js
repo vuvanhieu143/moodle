@@ -101,10 +101,6 @@ define([
             maxWidth = 0,
             maxHeight = 0;
 
-        // Pass 1: Reset all items to natural sizing and find max width.
-        dragDropItems.each(function(i, drag) {
-            $(drag).css({'width': '', 'height': '', 'lineHeight': ''});
-        });
         dragDropItems.each(function(i, drag) {
             maxWidth = Math.max(maxWidth, Math.ceil(drag.offsetWidth));
         });
@@ -112,12 +108,10 @@ define([
         // The width we will want to set is a bit bigger than this.
         maxWidth += 8;
 
-        // Pass 2: Set width, then measure wrapped heights.
+        // Set width, then measure wrapped heights.
         dragDropItems.each(function(i, drag) {
-            $(drag).width(maxWidth).css({'height': '', 'lineHeight': ''});
-        });
-        dragDropItems.each(function(i, drag) {
-            maxHeight = Math.max(maxHeight, Math.ceil(0 + drag.offsetHeight));
+            $(drag).width(maxWidth);
+            maxHeight = Math.max(maxHeight, drag.offsetHeight);
         });
         maxHeight += 2;
 

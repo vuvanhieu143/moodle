@@ -13,10 +13,8 @@
     border: 1px solid #000;
     cursor: move;
     overflow-wrap: break-word;
-    word-wrap: break-word;
     white-space: normal;
     line-height: normal;
-    vertical-align: top;
 }
 
 .que.ddwtos .answertext {
@@ -31,10 +29,8 @@
     border: 1px solid #000;
     margin-bottom: 2px;
     overflow-wrap: break-word;
-    word-wrap: break-word;
     white-space: normal;
     line-height: normal;
-    vertical-align: top;
 }
 
 .que.ddwtos .drop {
@@ -61,7 +57,7 @@
 
 .que.ddwtos .draghome.dragplaceholder.active {
     visibility: hidden;
-    display: inline-block;
+    display: inline-flex;
 }
 
 .que.ddwtos .draghome.placed {
