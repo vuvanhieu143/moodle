@@ -27,8 +27,8 @@ import ajax from 'core/ajax';
  * Given params, we want to fetch the students within report.
  *
  * @method userFetch
- * @param {object} params ID of the course to fetch the users of.
- * @return {object} jQuery promise
+ * @param {object} params Web service arguments (cmid, mode, params)
+ * @return {object} Promise returned by ajax.call.
  */
 export const userFetch = (params) => {
     const request = {

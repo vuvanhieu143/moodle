@@ -25,7 +25,7 @@ use mod_quiz\quiz_settings;
  * @package   mod_quiz
  * @copyright 2025 The Open University.
  * @license   http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
- * @since     Moodle 5.1
+ * @since     Moodle 5.3
  * @covers \mod_quiz\external\get_users_in_report
  */
 final class get_users_in_report_test extends \advanced_testcase {
@@ -68,7 +68,7 @@ final class get_users_in_report_test extends \advanced_testcase {
         $users = get_users_in_report::execute(
             $quiz->cmid,
             'overview',
-            '{"attempts":"enrolled_with","onlygraded":"","gpr_search":"","onlyregraded":""}'
+            '{"attempts":"enrolled_with","onlygraded":"","search":"","onlyregraded":""}'
         )['users'];
         $this->assertCount(0, $users);
 
@@ -89,7 +89,7 @@ final class get_users_in_report_test extends \advanced_testcase {
         $users = get_users_in_report::execute(
             $quiz->cmid,
             'overview',
-            '{"attempts":"enrolled_with","onlygraded":"","gpr_search":"","onlyregraded":""}'
+            '{"attempts":"enrolled_with","onlygraded":"","search":"","onlyregraded":""}'
         )['users'];
         $this->assertCount(2, $users);
 
@@ -97,7 +97,7 @@ final class get_users_in_report_test extends \advanced_testcase {
         $users = get_users_in_report::execute(
             $quiz->cmid,
             'overview',
-            '{"attempts":"enrolled_with","onlygraded":"","gpr_search":"","onlyregraded":"", "states":"finished"}'
+            '{"attempts":"enrolled_with","onlygraded":"","search":"","onlyregraded":"", "states":"finished"}'
         )['users'];
         $this->assertCount(1, $users);
     }

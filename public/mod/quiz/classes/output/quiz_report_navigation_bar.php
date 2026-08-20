@@ -47,6 +47,10 @@ class quiz_report_navigation_bar implements named_templatable, renderable {
     protected ?moodle_url $url;
     /** @var \cm_info $cm The cm object. */
     protected null|\cm_info $cm;
+    /** @var string $firstnameinitial The first name initial the user is filtering by. */
+    protected string $firstnameinitial = '';
+    /** @var string $lastnameinitial The last name initial the user is filtering by. */
+    protected string $lastnameinitial = '';
 
     /**
      * The class constructor.
@@ -64,6 +68,8 @@ class quiz_report_navigation_bar implements named_templatable, renderable {
         ?\moodle_url $url = null,
         ?\cm_info $cm = null
     ) {
+        global $SESSION;
+
         $this->context = $context;
         $this->usersearch = $options->usersearch ?? '';
         $this->userid = $options->userid ?? '';
@@ -76,6 +82,12 @@ class quiz_report_navigation_bar implements named_templatable, renderable {
             $user = \core_user::get_user($this->userid);
             $this->usersearch = fullname($user);
         }
+
+        // The initials filter is stashed in $SESSION rather than passed as a parameter, to match
+        // standard Moodle behaviour (e.g. the gradebook initials bar). report.php writes these
+        // values whenever the initials filter form is submitted.
+        $this->firstnameinitial = $SESSION->{$this->reportmode . 'report'}["filterfirstname-{$this->context->id}"] ?? '';
+        $this->lastnameinitial  = $SESSION->{$this->reportmode . 'report'}["filtersurname-{$this->context->id}"] ?? '';
     }
 
     /**
@@ -86,9 +98,7 @@ class quiz_report_navigation_bar implements named_templatable, renderable {
      * @throws \moodle_exception
      */
     public function export_for_template(\renderer_base $output): array {
-        global $OUTPUT, $USER, $SESSION, $PAGE;
-        $firstnameinitial = '';
-        $lastnameinitial = '';
+        global $OUTPUT, $USER, $PAGE;
 
         if (is_null($this->options)) {
             $cm = $this->cm;
@@ -112,13 +122,13 @@ class quiz_report_navigation_bar implements named_templatable, renderable {
             $additionalparams = [];
 
             if ($this->userid > 0) {
-                $additionalparams['gpr_userid'] = $this->userid;
+                $additionalparams['userid'] = $this->userid;
             } else if (!empty($this->usersearch)) {
-                $additionalparams['gpr_search'] = $this->usersearch;
+                $additionalparams['search'] = $this->usersearch;
             }
 
-            $firstnameinitial = $SESSION->{$this->reportmode . 'report'}["filterfirstname-{$this->context->id}"] ?? '';
-            $lastnameinitial  = $SESSION->{$this->reportmode . 'report'}["filtersurname-{$this->context->id}"] ?? '';
+            $firstnameinitial = $this->firstnameinitial;
+            $lastnameinitial  = $this->lastnameinitial;
             $initialselector = new initials_selector(
                 course: $course,
                 targeturl: '/mod/quiz/report.php',
@@ -137,7 +147,9 @@ class quiz_report_navigation_bar implements named_templatable, renderable {
 
         // Get the data used to output group selectors.
         if (groups_get_activity_groupmode($this->cm)) {
-            $gs = new group_selector($this->context);
+            // Note: group_selector queries course-level groups via AJAX, which can cause non-participation
+            // or activity-restricted groups to be displayed regardless of the $participationonly flag.
+            $gs = new group_selector($this->context, true);
             $data['groupselector'] = $gs->export_for_template($output);
             $baseurl = new \moodle_url('/mod/quiz/report.php', ['id' => $params->cmid, 'mode' => $this->reportmode]);
             if (!is_null($this->options)) {
@@ -151,8 +163,8 @@ class quiz_report_navigation_bar implements named_templatable, renderable {
             $courseid = $cm->course;
             // Reset link.
             $resetparams = $this->options->get_url()->params();
-            $resetparams['gpr_search'] = '';
-            $resetparams['gpr_userid'] = -1;
+            $resetparams['search'] = '';
+            $resetparams['userid'] = -1;
             $resetlink = new moodle_url('/mod/quiz/report.php', $resetparams);
             // User search.
             $searchinput = $OUTPUT->render_from_template('core_user/comboboxsearch/user_selector', [
@@ -183,14 +195,14 @@ class quiz_report_navigation_bar implements named_templatable, renderable {
             $allowedgroups = groups_get_all_groups($course->id, $USER->id, $course->defaultgroupingid);
         }
         if (
-            !empty($firstnameinitial) || !empty($lastnameinitial) ||
+            !empty($this->firstnameinitial) || !empty($this->lastnameinitial) ||
             groups_get_course_group($course, true, $allowedgroups) || $this->usersearch
         ) {
             if (is_null($this->options)) {
                 $params = $this->url ? $this->url->params() : [];
             } else {
                 $params = [...$this->options->get_url()->params(), ...['sifirst' => '',
-                    'silast' => '', 'gpr_search' => ''],
+                    'silast' => '', 'search' => ''],
                 ];
             }
             $resetparam = array_merge($params, [

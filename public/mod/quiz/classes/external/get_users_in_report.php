@@ -53,7 +53,12 @@ class get_users_in_report extends external_api {
         return new external_function_parameters([
             'cmid' => new external_value(PARAM_INT, 'The cmid.'),
             'mode' => new external_value(PARAM_ALPHA, 'Report mode'),
-            'params' => new external_value(PARAM_RAW_TRIMMED, 'Additional parameters'),
+            'params' => new external_value(
+                PARAM_RAW_TRIMMED,
+                'This is a JSON-serialised BLOB containing the report\'s current filter settings ' .
+                '(for example attempts, onlygraded, pagesize, states, download), matching the ' .
+                'fields read by attempts_report_options::setup_from_params_array().'
+            ),
         ]);
     }
 
@@ -70,16 +75,25 @@ class get_users_in_report extends external_api {
 
         $warnings = [];
         $users = [];
-        self::validate_parameters(
+        // Parameter validation.
+        ['cmid' => $cmid, 'mode' => $mode, 'params' => $params] = self::validate_parameters(
             self::execute_parameters(),
             [
                 'cmid' => $cmid,
                 'mode' => $mode,
                 'params' => $params,
-            ],
+            ]
         );
 
-        // Open the selected quiz report and display it.
+        $quizobj = quiz_settings::create_for_cmid($cmid);
+        $context = $quizobj->get_context();
+        external_api::validate_context($context);
+
+        $quiz = $quizobj->get_quiz();
+        $cm = $quizobj->get_cm();
+        $course = $quizobj->get_course();
+
+        // Load the report class definition.
         $file = $CFG->dirroot . '/mod/quiz/report/' . $mode . '/report.php';
         if (is_readable($file)) {
             include_once($file);
@@ -88,15 +102,7 @@ class get_users_in_report extends external_api {
         if (!class_exists($reportclassname)) {
             throw new \moodle_exception('preprocesserror', 'quiz');
         }
-
-        $quizobj = quiz_settings::create_for_cmid($cmid);
-        $quiz = $quizobj->get_quiz();
-        $cm = $quizobj->get_cm();
-        $course = $quizobj->get_course();
-
         $report = new $reportclassname();
-        $context = $quizobj->get_context();
-        external_api::validate_context($context);
         // Check access permission.
         $report->has_permission($context);
         $data = $report->setup_report_data($quiz, $cm, $course, $context);
@@ -109,8 +115,6 @@ class get_users_in_report extends external_api {
         // Retrieve necessary data for report.
         [$options, $table, $allowedjoins] = $data;
         static::$context = $context;
-
-        $PAGE->set_context($context);
 
         // Get parameter for report.
         $params = json_decode($params);
@@ -143,8 +147,8 @@ class get_users_in_report extends external_api {
 
             return $response;
         }, []);
-        // We don't want to the filter to filter picture field and other name fields.
-        // Since we already have full name field.
+        // We don't want the filter to strip out the picture field and other name fields,
+        // since we already have the full name field.
         $allowfields = array_merge(['fullname'], $userfieldsapi->get_required_fields([\core_user\fields::PURPOSE_IDENTITY]));
         return [
             'extrafields' => $allowfields,

@@ -54,6 +54,9 @@ $PAGE->set_url($url);
 require_login($course, false, $cm);
 $PAGE->set_pagelayout('report');
 $PAGE->activityheader->disable();
+// Disable default tertiary overflow navigation. Quiz reports render a custom
+// quiz_report_navigation_bar, while keeping settingsnav intact for legacy blocks.
+$PAGE->set_navigation_overflow_state(false);
 $PAGE->set_show_navigation_footer(false);
 $reportlist = quiz_report_list($quizobj->get_context());
 if (empty($reportlist)) {
@@ -72,7 +75,7 @@ if (!is_readable("report/$mode/report.php")) {
     throw new \moodle_exception('reportnotfound', 'quiz', '', $mode);
 }
 
-// Open the selected quiz report and display it.
+// Load the class definition for the requested report.
 $file = $CFG->dirroot . '/mod/quiz/report/' . $mode . '/report.php';
 if (is_readable($file)) {
     include_once($file);
@@ -84,7 +87,9 @@ if (!class_exists($reportclassname)) {
 
 $context = $quizobj->get_context();
 
-// The report object is recreated each time, save search information to SESSION object for future use.
+// The report object is recreated on every request, so the initials filter values are stashed in
+// $SESSION (matching standard Moodle behaviour, e.g. the gradebook initials bar) rather than being
+// passed through every report URL. attempts_report_table::base_sql() reads them back from here.
 if (isset($reportsifirst)) {
     $SESSION->{$mode . 'report'}["filterfirstname-{$context->id}"] = $reportsifirst;
 }

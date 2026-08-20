@@ -66,13 +66,13 @@ Feature: Viewing results by group
     And I confirm "Group 1" <G1> in the "Search groups" search combo box
     And I confirm "Group 2" <G2> in the "Search groups" search combo box
     And I <error> "Sorry, but you need to be part of a group to see this page."
-    And I should not see "Group 3"
+    And I confirm "Group 3" <G3> in the "Search groups" search combo box
 
     Examples:
-      | quiz  | user       | all            | G1             | G2             | error          |
-      | quiz1 | teacher1   | should see     | exists         | exists         | should not see |
-      | quiz1 | noneditor1 | should not see | exists         | does not exist | should not see |
-      | quiz1 | noneditor2 | should see     | does not exist | does not exist | should see     |
-      | quiz2 | teacher1   | should see     | exists         | exists         | should not see |
-      | quiz2 | noneditor1 | should not see | exists         | exists         | should not see |
-      | quiz2 | noneditor2 | should not see | exists         | exists         | should not see |
+      | quiz  | user       | all            | G1             | G2             | G3             | error          |
+      | quiz1 | teacher1   | should see     | exists         | exists         | exists         | should not see |
+      | quiz1 | noneditor1 | should not see | exists         | does not exist | does not exist | should not see |
+      | quiz1 | noneditor2 | should see     | does not exist | does not exist | does not exist | should see     |
+      | quiz2 | teacher1   | should see     | exists         | exists         | exists         | should not see |
+      | quiz2 | noneditor1 | should not see | exists         | exists         | exists         | should not see |
+      | quiz2 | noneditor2 | should not see | exists         | exists         | exists         | should not see |

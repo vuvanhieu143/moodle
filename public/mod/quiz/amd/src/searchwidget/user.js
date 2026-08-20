@@ -28,9 +28,6 @@ import {getStrings} from 'core/str';
 export default class QuizUserSearch extends UserSearch {
 
     static extraParams;
-    constructor() {
-        super();
-    }
 
     static init(extraParams = null) {
         QuizUserSearch.extraParams = extraParams;
@@ -72,7 +69,7 @@ export default class QuizUserSearch extends UserSearch {
     selectAllResultsLink() {
         return Url.relativeUrl(QuizUserSearch.extraParams.path, {
             ...QuizUserSearch.extraParams.params,
-            gpr_search: this.getSearchTerm(),
+            search: this.getSearchTerm(),
         }, false);
     }
 
@@ -85,8 +82,8 @@ export default class QuizUserSearch extends UserSearch {
     selectOneLink(userID) {
         return Url.relativeUrl(QuizUserSearch.extraParams.path, {
             ...QuizUserSearch.extraParams.params,
-            gpr_search: this.getSearchTerm(),
-            gpr_userid: userID,
+            search: this.getSearchTerm(),
+            userid: userID,
         }, false);
     }
 }

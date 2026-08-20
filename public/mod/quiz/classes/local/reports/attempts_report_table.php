@@ -613,6 +613,10 @@ abstract class attempts_report_table extends \table_sql {
         $filterfirstnamekey = "filterfirstname-{$this->context->id}";
         $filtersurnamekey = "filtersurname-{$this->context->id}";
 
+        // The initials filter is stored in $SESSION rather than passed as a parameter, to match
+        // standard Moodle behaviour (e.g. the gradebook and participants list initials bars), so
+        // the filter persists across requests (including this table being rebuilt for an AJAX
+        // user-search request) without needing to be repeated in every URL.
         if (!empty($SESSION->{$this->options->mode . 'report'}[$filterfirstnamekey])) {
             $where .= ' AND ' . $DB->sql_like('u.firstname', ':firstname', false, false);
             $params['firstname'] = $SESSION->{$this->options->mode . 'report'}[$filterfirstnamekey] . '%';
