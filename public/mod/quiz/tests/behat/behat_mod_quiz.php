@@ -574,7 +574,8 @@ class behat_mod_quiz extends behat_question_base {
      */
     protected function get_xpath_page_break_icon_after_question($addorremoves, $questionname) {
         return "//li[contains(@class, 'slot') and contains(., '" . $this->escape($questionname) .
-                "')]//a[contains(@class, 'page_split_join') and contains(@aria-label, '$addorremoves page break')]";
+                "')]//a[contains(@class, 'page_split_join') and (contains(@aria-label, '$addorremoves page break')" .
+            " or contains(@title, '$addorremoves page break'))]";
     }
 
     /**
@@ -688,8 +689,8 @@ class behat_mod_quiz extends behat_question_base {
      *      "After Page 1" or "After Question N".
      */
     public function i_move_question_after_item_by_clicking_the_move_icon($questionname, $target) {
-        $iconxpath = "//li[contains(@class, ' slot ') and contains(., '" . $this->escape($questionname) .
-                "')]//span[contains(@class, 'editing_move')]";
+        $iconxpath = "//li[contains(@class, 'slot') and contains(., '" . $this->escape($questionname) .
+                "')]//*[contains(@class, 'editing_move')]";
 
         $this->execute("behat_general::i_click_on", [$iconxpath, "xpath_element"]);
         $this->execute("behat_general::i_click_on", [$this->escape($target), "button"]);
@@ -702,14 +703,29 @@ class behat_mod_quiz extends behat_question_base {
      * @param string $target the target place to move to. Ether a question name, or "Page N"
      */
     public function i_move_question_after_item_by_dragging($questionname, $target) {
-        $iconxpath = "//li[contains(@class, ' slot ') and contains(., '" . $this->escape($questionname) .
-                "')]//span[contains(@class, 'editing_move')]//img";
-        $destinationxpath = "//li[contains(@class, ' slot ') or contains(@class, 'pagenumber ')]" .
-                "[contains(., '" . $this->escape($target) . "')]";
+        $iconxpath = "//li[contains(@class, 'slot') and contains(., '" . $this->escape($questionname) .
+                "')]//*[contains(@class, 'editing_move')]";
+        $destinationxpath = "//li[(contains(@class, 'slot') or contains(@class, 'pagenumber'))" .
+            " and contains(., '" . $this->escape($target) . "')]";
 
-        $this->execute('behat_general::i_drag_and_i_drop_it_in',
-            [$iconxpath, 'xpath_element', $destinationxpath, 'xpath_element']
-        );
+        $js = "
+            (function() {
+                var src = document.evaluate(" . json_encode($iconxpath) .
+            ", document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null).singleNodeValue;
+                var dst = document.evaluate(" . json_encode($destinationxpath) .
+            ", document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null).singleNodeValue;
+                if (!src || !dst) return false;
+
+                var dataTransfer = new DataTransfer();
+                src.dispatchEvent(new DragEvent('dragstart', { bubbles: true, cancelable: true, dataTransfer: dataTransfer }));
+                dst.dispatchEvent(new DragEvent('dragenter', { bubbles: true, cancelable: true, dataTransfer: dataTransfer }));
+                dst.dispatchEvent(new DragEvent('dragover', { bubbles: true, cancelable: true, dataTransfer: dataTransfer }));
+                dst.dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer: dataTransfer }));
+                src.dispatchEvent(new DragEvent('dragend', { bubbles: true, cancelable: true, dataTransfer: dataTransfer }));
+                return true;
+            })();
+        ";
+        $this->execute_script($js);
     }
 
     /**
