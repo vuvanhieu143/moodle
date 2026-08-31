@@ -50,9 +50,9 @@ const registerEventListeners = () => {
         }
 
         const slotId = e.target.dataset.slotId;
-        const newVersion = parseInt(e.target.value);
+        const newVersion = isNaN(parseInt(e.target.value)) ? 0 : parseInt(e.target.value);
 
-        setQuestionVersion(slotId, newVersion === 0 ? null : newVersion)
+        setQuestionVersion(slotId, newVersion)
             .then(() => {
                 location.reload();
                 return;

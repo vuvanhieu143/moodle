@@ -52,8 +52,16 @@ class edit_renderer extends \plugin_renderer_base {
      * @param \core_question\local\bank\question_edit_contexts $contexts the relevant question bank contexts.
      * @param \moodle_url $pageurl the canonical URL of this page.
      * @param array $pagevars the variables from {@link question_edit_setup()}.
+     * @deprecated since 5.2, use quiz::edit_page instead.
+     *
      * @return string HTML to output.
      */
+    #[\core\attribute\deprecated(
+        replacement: '\mod_quiz\output\edit_page',
+        since: '5.2',
+        reason: 'No longer required',
+        mdl: 'MDL-76643',
+    )]
     public function edit_page(
         \mod_quiz\quiz_settings $quizobj,
         structure $structure,
@@ -105,7 +113,7 @@ class edit_renderer extends \plugin_renderer_base {
                 $output .= html_writer::tag(
                     'span',
                     $this->add_menu_actions($structure, 0, $pageurl, $contexts, $pagevars),
-                    ['class' => 'add-menu-outer pe-3']
+                    ['class' => 'add-menu-outer'],
                 );
                 $output .= \html_writer::end_div();
             }
@@ -116,7 +124,7 @@ class edit_renderer extends \plugin_renderer_base {
         $output .= $this->end_section_list();
 
         // Initialise the JavaScript.
-        $this->initialise_editing_javascript($structure, $contexts, $pagevars, $pageurl);
+        $this->initialise_editing_javascript($structure);
 
         // Include the contents of any other popups required.
         if ($structure->can_be_edited()) {
@@ -220,7 +228,7 @@ class edit_renderer extends \plugin_renderer_base {
      * @param \moodle_url $pageurl the canonical URL of this page.
      * @return string HTML to output.
      */
-    protected function repaginate_button(structure $structure, \moodle_url $pageurl) {
+    public function repaginate_button(structure $structure, \moodle_url $pageurl) {
         $header = html_writer::tag('span', get_string('repaginatecommand', 'quiz'), ['class' => 'repaginatecommand']);
         $form = $this->repaginate_form($structure, $pageurl);
 
@@ -248,7 +256,7 @@ class edit_renderer extends \plugin_renderer_base {
      * @param structure $structure the structure of the quiz being edited.
      * @return string HTML to output.
      */
-    protected function selectmultiple_button(structure $structure) {
+    public function selectmultiple_button(structure $structure) {
         $buttonoptions = [
             'type'  => 'button',
             'name'  => 'selectmultiple',
@@ -269,7 +277,7 @@ class edit_renderer extends \plugin_renderer_base {
      * @param structure $structure the structure of the quiz being edited.
      * @return string HTML to output.
      */
-    protected function selectmultiple_controls(structure $structure) {
+    public function selectmultiple_controls(structure $structure) {
         $output = '';
 
         // Bulk action button delete and bulk action button cancel.
@@ -401,7 +409,7 @@ class edit_renderer extends \plugin_renderer_base {
      * @param \stdClass $section The quiz_section entry from DB
      * @return string HTML to output.
      */
-    protected function start_section($structure, $section) {
+    public function start_section($structure, $section) {
 
         $output = '';
 
@@ -567,9 +575,18 @@ class edit_renderer extends \plugin_renderer_base {
         $qtype = $structure->get_question_type_for_slot($slot);
         $questionclasses = 'activity ' . $qtype . ' qtype_' . $qtype . ' slot';
 
-        $output .= html_writer::tag('li', $questionhtml . $joinhtml,
-                ['class' => $questionclasses, 'id' => 'slot-' . $structure->get_slot_id_for_slot($slot),
-                        'data-canfinish' => $structure->can_finish_during_the_attempt($slot)]);
+        $output .= html_writer::tag(
+            'li',
+            $questionhtml . $joinhtml,
+            [
+                'class' => $questionclasses,
+                'id' => 'slot-' . $structure->get_slot_id_for_slot($slot),
+                'data-canfinish' => $structure->can_finish_during_the_attempt($slot),
+                'data-for' => 'question',
+                'data-slotorder' => $slot,
+                'data-page' => $structure->get_page_number_for_slot($slot),
+            ]
+        );
 
         return $output;
     }
@@ -603,8 +620,15 @@ class edit_renderer extends \plugin_renderer_base {
             $addquestionform = $this->add_question_form($structure,
                     $pagenumber, $pageurl, $pagevars);
 
-            $output .= html_writer::tag('li', $page . $addmenu . $addquestionform,
-                    ['class' => 'pagenumber activity yui3-dd-drop page', 'id' => 'page-' . $pagenumber]);
+            $output .= html_writer::tag(
+                'li',
+                $page . $addmenu . $addquestionform,
+                [
+                    'class' => 'pagenumber activity page',
+                    'data-for' => 'page',
+                    'id' => 'page-' . $pagenumber,
+                ]
+            );
         }
 
         return $output;
@@ -788,8 +812,12 @@ class edit_renderer extends \plugin_renderer_base {
         }
 
         if ($structure->can_display_number_be_customised($slot)) {
-            $questionnumber = $this->output->render($structure->make_slot_display_number_in_place_editable(
-                    $slotid, $structure->get_context()));
+            $questionnumber = $this->output->render(
+                $structure->make_slot_display_number_in_place_editable(
+                    $slotid,
+                    $structure->get_context()
+                )
+            );
         } else {
             $questionnumber = $structure->get_displayed_number_for_slot($slot);
         }
@@ -798,7 +826,11 @@ class edit_renderer extends \plugin_renderer_base {
             'slotid' => $slotid,
             'canbeedited' => $structure->can_be_edited(),
             'checkbox' => $this->get_checkbox_render($structure, $slot),
-            'questionnumber' => $this->question_number($questionnumber, $structure->get_slot_by_number($slot)->defaultnumber),
+            'questionnumber' => $this->question_number(
+                $questionnumber,
+                $structure->get_slot_by_number($slot)->defaultnumber,
+                $structure->get_slot_by_id($slotid)->displaynumber
+            ),
             'questionname' => $this->get_question_name_for_slot($structure, $slot, $pageurl),
             'questionicons' => $this->get_action_icon($structure, $slot, $pageurl),
             'questiondependencyicon' => ($structure->can_be_edited() ? $this->question_dependency_icon($structure, $slot) : ''),
@@ -900,10 +932,12 @@ class edit_renderer extends \plugin_renderer_base {
         $slotnumber = $structure->get_displayed_number_for_slot($slot);
         return html_writer::link(
             new \moodle_url('#'),
-            $this->pix_icon('i/dragdrop', '', 'moodle', ['class' => 'iconsmall']),
+            $this->pix_icon('i/dragdrop', '', 'moodle', ['class' => 'iconsmall', 'title' => '']),
             [
                 'class' => 'editing_move',
                 'data-action' => 'move',
+                'role' => 'button',
+                'tabindex' => 0,
                 'aria-label' => get_string('movequestionnumber', 'quiz', $slotnumber),
             ]
         );
@@ -914,14 +948,19 @@ class edit_renderer extends \plugin_renderer_base {
      *
      * @param string $editablenumber The, which may be an in-place editable.
      * @param string $uncustomisednumber The un-customised number number, or 'i'.
+     * @param string|null $customisednumber The customised slot number.
      * @return string HTML to output.
      */
-    public function question_number(string $editablenumber, string $uncustomisednumber) {
+    public function question_number(string $editablenumber, string $uncustomisednumber, ?string $customisednumber = null): string {
+        if ($customisednumber === $uncustomisednumber) {
+            $customisednumber = '';
+        }
         if ($editablenumber !== get_string('infoshort', 'quiz')) {
             $editablenumber = html_writer::span(get_string('question'), 'accesshide') . ' ' . $editablenumber;
             $uncustomisednumber = html_writer::span(get_string('question'), 'accesshide') . ' ' . $uncustomisednumber;
         }
-        return html_writer::tag('span', $editablenumber, ['class' => 'slotnumber unshuffled']) .
+        return html_writer::tag('span', $editablenumber, ['class' => 'slotnumber unshuffled',
+                'data-customnumber' => $customisednumber]) .
                 html_writer::tag('span', $uncustomisednumber, ['class' => 'slotnumber shuffled']);
     }
 
@@ -1265,60 +1304,37 @@ class edit_renderer extends \plugin_renderer_base {
      * is handled with the specific code for those.)
      *
      * @param structure $structure object containing the structure of the quiz.
-     * @param \core_question\local\bank\question_edit_contexts $contexts the relevant question bank contexts.
-     * @param array $pagevars the variables from {@link \question_edit_setup()}.
-     * @param \moodle_url $pageurl the canonical URL of this page.
-     * @return bool Always returns true
      */
-    protected function initialise_editing_javascript(structure $structure,
-            \core_question\local\bank\question_edit_contexts $contexts, array $pagevars, \moodle_url $pageurl) {
+    public function initialise_editing_javascript(structure $structure) {
 
-        $config = new \stdClass();
-        $config->resourceurl = '/mod/quiz/edit_rest.php';
-        $config->sectionurl = '/mod/quiz/edit_rest.php';
-        $config->pageparams = [];
-        $config->questiondecimalpoints = $structure->get_decimal_places_for_question_marks();
-        $config->pagehtml = $this->new_page_template($structure, $contexts, $pagevars, $pageurl);
-        $config->addpageiconhtml = $this->add_page_icon_template($structure);
-
-        $this->page->requires->yui_module('moodle-mod_quiz-toolboxes',
-                'M.mod_quiz.init_resource_toolbox',
-                [[
-                        'courseid' => $structure->get_courseid(),
-                        'quizid' => $structure->get_quizid(),
-                        'ajaxurl' => $config->resourceurl,
-                        'config' => $config,
-                ]]
+        $this->page->requires->js_call_amd(
+            'mod_quiz/quiz_toolboxes',
+            'initResourceToolbox',
+            [
+                'courseid' => $structure->get_courseid(),
+                'quizid' => $structure->get_quizid(),
+            ]
         );
-        unset($config->pagehtml);
-        unset($config->addpageiconhtml);
-
-        $this->page->requires->strings_for_js(['areyousureremoveselected'], 'quiz');
-        $this->page->requires->yui_module('moodle-mod_quiz-toolboxes',
-                'M.mod_quiz.init_section_toolbox',
-                [[
-                        'courseid' => $structure,
-                        'quizid' => $structure->get_quizid(),
-                        'ajaxurl' => $config->sectionurl,
-                        'config' => $config,
-                ]]
+        $this->page->requires->js_call_amd(
+            'mod_quiz/quiz_toolboxes',
+            'initSectionToolbox',
+            [
+                'courseid' => $structure->get_courseid(),
+                'quizid' => $structure->get_quizid(),
+            ]
         );
 
-        $this->page->requires->yui_module('moodle-mod_quiz-dragdrop', 'M.mod_quiz.init_section_dragdrop',
-                [[
-                        'courseid' => $structure,
-                        'quizid' => $structure->get_quizid(),
-                        'ajaxurl' => $config->sectionurl,
-                        'config' => $config,
-                ]], null, true);
+        $this->page->requires->js_call_amd(
+            'mod_quiz/dragdrop/main',
+            'initDragDrop',
+            [
+                $this->page->bodyid,
+                $structure->get_quizid(),
+                $structure->get_courseid(),
+            ]
+        );
 
-        $this->page->requires->yui_module('moodle-mod_quiz-dragdrop', 'M.mod_quiz.init_resource_dragdrop',
-                [[
-                        'courseid' => $structure,
-                        'quizid' => $structure->get_quizid(),
-                        'ajaxurl' => $config->resourceurl,
-                        'config' => $config,
-                ]], null, true);
+        $this->page->requires->js_call_amd('mod_quiz/question_slot', 'init');
 
         // Require various strings for the command toolbox.
         $this->page->requires->strings_for_js([
@@ -1375,8 +1391,12 @@ class edit_renderer extends \plugin_renderer_base {
      * @param \moodle_url $pageurl the canonical URL of this page.
      * @return string HTML for a new page.
      */
-    protected function new_page_template(structure $structure,
-            \core_question\local\bank\question_edit_contexts $contexts, array $pagevars, \moodle_url $pageurl) {
+    public function new_page_template(
+        structure $structure,
+        \core_question\local\bank\question_edit_contexts $contexts,
+        array $pagevars,
+        \moodle_url $pageurl
+    ): string {
         if (!$structure->has_questions()) {
             return '';
         }
@@ -1408,7 +1428,7 @@ class edit_renderer extends \plugin_renderer_base {
      * @param structure $structure object containing the structure of the quiz.
      * @return string HTML for a new icon
      */
-    protected function add_page_icon_template(structure $structure) {
+    public function add_page_icon_template(structure $structure) {
 
         if (!$structure->has_questions()) {
             return '';
