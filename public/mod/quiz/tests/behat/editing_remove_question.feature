@@ -95,3 +95,17 @@ Feature: Edit quiz page - remove questions
     And I am on the "Quiz 1" "mod_quiz > Edit" page
     When I delete "Question A" in the quiz by clicking the delete icon
     Then I should see "Questions: 0"
+
+  @javascript
+  Scenario: Delete random question by clicking on the delete icon.
+    Given the following "questions" exist:
+      | questioncategory | qtype     | name       | questiontext        |
+      | Test questions   | truefalse | Question A | This is question 01 |
+    And quiz "Quiz 1" contains the following questions:
+      | question                | page | randomcategory |
+      | Random (Test questions) | 1    | Test questions |
+    And I am on the "Quiz 1" "mod_quiz > Edit" page
+    When I click on "Delete" "link" in the "Random (Test questions) based on filter condition" "list_item"
+    Then I should see "Are you sure you want to remove this random question?" in the "Confirm" "dialogue"
+    And I click on "Yes" "button" in the "Confirm" "dialogue"
+    And I should see "Questions: 0"

@@ -572,7 +572,12 @@ class edit_renderer extends \plugin_renderer_base {
         }
         // Question HTML.
         $questionhtml = $this->question($structure, $slot, $pageurl);
-        $qtype = $structure->get_question_type_for_slot($slot);
+        $slotinfo = $structure->get_slot_by_number($slot);
+        if ($slotinfo->random) {
+            $qtype = 'random';
+        } else {
+            $qtype = $structure->get_question_type_for_slot($slot);
+        }
         $questionclasses = 'activity ' . $qtype . ' qtype_' . $qtype . ' slot';
 
         $output .= html_writer::tag(
@@ -1365,6 +1370,7 @@ class edit_renderer extends \plugin_renderer_base {
                 'dragtoafter',
                 'dragtostart',
                 'numquestionsx',
+                'randomqtype',
                 'sectionheadingedit',
                 'sectionheadingremove',
                 'sectionnoname',

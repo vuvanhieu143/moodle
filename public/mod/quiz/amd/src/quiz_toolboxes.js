@@ -102,7 +102,7 @@ const CSS = {
 Prefetch.prefetchStrings('quiz',
     ['numquestionsx', 'cannotremoveslots', 'cannotremoveallsectionslots', 'confirmremovequestion',
         'confirmremovesectionheading', 'sectionnoname', 'sectionheadingedit',
-        'sectionheadingremove', 'areyousureremoveselected']);
+        'sectionheadingremove', 'areyousureremoveselected', 'randomqtype']);
 
 Prefetch.prefetchStrings('moodle', ['edittitleinstructions', 'confirm', 'yes']);
 
@@ -559,10 +559,15 @@ class ResourceToolBox extends ToolBox {
 
         // Get the element we're working on.
         const element = activity;
-        const qtypeClass = element.getAttribute('class').match(/qtype_(\S*)/)[1];
+        const qtypeMatch = element.getAttribute('class')?.match(/qtype_(\S+)/);
+        const qtypeClass = qtypeMatch ? qtypeMatch[1] : '';
+        let qtypeName;
+        if (element.classList.contains('random') || qtypeClass === 'random') {
+            qtypeName = await getString('randomqtype', 'quiz');
+        } else {
+            qtypeName = qtypeClass ? await getString('pluginname', 'qtype_' + qtypeClass) : '';
+        }
 
-        // Create confirm string (different if element has or does not have name)
-        const qtypeName = await getString('pluginname', 'qtype_' + qtypeClass);
         const allStrings = [
             {key: 'confirm', component: 'moodle'},
             {key: 'confirmremovequestion', component: 'quiz', param: qtypeName},

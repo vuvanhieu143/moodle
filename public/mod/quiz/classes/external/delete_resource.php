@@ -101,7 +101,7 @@ class delete_resource extends external_api {
     public static function execute_returns(): ?external_description {
         return new external_single_structure([
             'newsummarks' => new external_value(PARAM_TEXT, 'Round a grade to the correct number of decimal place'),
-            'deleted' => new external_value(PARAM_TEXT, 'Whether it have been delete'),
+            'deleted' => new external_value(PARAM_BOOL, 'Whether it have been delete'),
             'newnumquestions' => new external_value(PARAM_INT, 'The number of questions'),
         ]);
     }

@@ -40,6 +40,8 @@ use mod_quiz\quiz_settings;
  * @covers \mod_quiz\external\delete_resource
  */
 final class quiz_resources_test extends externallib_advanced_testcase {
+    use \mod_quiz\tests\question_helper_test_trait;
+
     /**
      * Test the behavior of get max mark.
      */
@@ -163,6 +165,40 @@ final class quiz_resources_test extends externallib_advanced_testcase {
 
         $structure = $quizobj->get_structure();
         $this->assertEquals(1, $structure->get_question_count());
+    }
+
+    /**
+     * Test delete resource for a random question slot.
+     */
+    public function test_delete_resource_random_question(): void {
+        global $SITE;
+        $this->resetAfterTest();
+        $this->setAdminUser();
+
+        /** @var \mod_quiz_generator $quizgenerator */
+        $quizgenerator = $this->getDataGenerator()->get_plugin_generator('mod_quiz');
+        $quiz = $quizgenerator->create_instance(['course' => $SITE->id]);
+
+        /** @var core_question_generator $questiongenerator */
+        $questiongenerator = $this->getDataGenerator()->get_plugin_generator('core_question');
+        $cat = $questiongenerator->create_question_category();
+        $questiongenerator->create_question('shortanswer', null, ['category' => $cat->id]);
+
+        $this->add_random_questions($quiz->id, 0, $cat->id, 1);
+
+        $quizobj = quiz_settings::create($quiz->id);
+        $structure = $quizobj->get_structure();
+        $this->assertEquals(1, $structure->get_question_count());
+
+        $result = delete_resource::execute($quizobj->get_quizid(), $structure->get_slot_id_for_slot(1));
+        $this->assertArrayHasKey('newsummarks', $result);
+        $this->assertArrayHasKey('deleted', $result);
+        $this->assertArrayHasKey('newnumquestions', $result);
+        $this->assertTrue($result['deleted']);
+        $this->assertEquals(0, $result['newnumquestions']);
+
+        $structure = $quizobj->get_structure();
+        $this->assertEquals(0, $structure->get_question_count());
     }
 
     /**
