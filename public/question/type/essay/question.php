@@ -180,7 +180,26 @@ class qtype_essay_question extends question_with_responses {
         if ($this->is_complete_response($response)) {
             return '';
         }
-        return $this->check_input_word_count($response['answer'], $response['answerformat'] ?? FORMAT_PLAIN);
+
+        $errors = [];
+
+        $hasinlinetext = array_key_exists('answer', $response) && ($response['answer'] !== '');
+        if ($hasinlinetext || $this->responserequired) {
+            $wordcounterror = $this->check_input_word_count(
+                $response['answer'] ?? '',
+                $response['answerformat'] ?? FORMAT_PLAIN
+            );
+            if ($wordcounterror) {
+                $errors[] = $wordcounterror;
+            }
+        }
+
+        $attachmenterror = $this->check_attachment_count($response);
+        if ($attachmenterror) {
+            $errors[] = $attachmenterror;
+        }
+
+        return implode(' ', $errors);
     }
 
     public function is_gradable_response(array $response) {
@@ -289,6 +308,29 @@ class qtype_essay_question extends question_with_responses {
     }
 
     /**
+     * Check the attachment count and return a message to user
+     * when the number of attachments is less than required.
+     *
+     * @param array $response the student's response to count the attachments in.
+     * @return string|null null if the attachment count is met, otherwise an error message.
+     */
+    private function check_attachment_count(array $response): ?string {
+        if ($this->attachmentsrequired > 0) {
+            $hasattachments = array_key_exists('attachments', $response)
+                && $response['attachments'] instanceof question_response_files;
+            $attachcount = $hasattachments ? count($response['attachments']->get_files()) : 0;
+            if ($attachcount < $this->attachmentsrequired) {
+                return get_string(
+                    'minattachmentsboundary',
+                    'qtype_essay',
+                    ['limit' => $this->attachmentsrequired, 'count' => $attachcount],
+                );
+            }
+        }
+        return null;
+    }
+
+    /**
      * If this question uses word counts, then return a display of the current
      * count, and whether it is within limit, for when the question is being reviewed.
      *
@@ -317,5 +359,38 @@ class qtype_essay_question extends question_with_responses {
         } else {
             return get_string('wordcount', 'qtype_essay', $count);
         }
+    }
+
+    /**
+     * If this question uses attachment requirements, then return a display of the current
+     * count, and whether it is within limit, for when the question is being reviewed.
+     *
+     * @param array $response responses, as returned by
+     *      {@see question_attempt_step::get_qt_data()}.
+     * @param int $count the number of attachments uploaded.
+     * @return string If relevant to this question, a display of the attachment count.
+     */
+    public function get_attachment_count_message_for_review(array $response, int $count): string {
+        if (!$this->attachmentsrequired) {
+            // This question does not require attachments.
+            return '';
+        }
+
+        $hasinlinetext = array_key_exists('answer', $response) && ($response['answer'] !== '');
+        $hasattachments = $count > 0;
+
+        // If there is no response at all (not yet answered), do not display anything.
+        if (!$hasinlinetext && !$hasattachments) {
+            return '';
+        }
+
+        if ($count < $this->attachmentsrequired) {
+            return get_string('attachmentcounttoofew', 'qtype_essay', [
+                'limit' => $this->attachmentsrequired,
+                'count' => $count,
+            ]);
+        }
+
+        return get_string('attachmentcount', 'qtype_essay', $count);
     }
 }
