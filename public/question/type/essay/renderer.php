@@ -89,13 +89,16 @@ class qtype_essay_renderer extends qtype_renderer {
 
         $result .= html_writer::start_tag('div', array('class' => 'ablock'));
         $result .= html_writer::tag('div', $answer, array('class' => 'answer'));
+        $result .= html_writer::tag('div', $files, ['class' => 'attachments']);
 
-        // If there is a response and min/max word limit is set in the form then check the response word count.
+        // If there is a validation error, display it here at the bottom.
         if ($qa->get_state() == question_state::$invalid) {
-            $result .= html_writer::nonempty_tag('div',
-                $question->get_validation_error($step->get_qt_data()), ['class' => 'validationerror']);
+            $result .= html_writer::nonempty_tag(
+                'div',
+                $question->get_validation_error($qa->get_last_qt_data()),
+                ['class' => 'validationerror']
+            );
         }
-        $result .= html_writer::tag('div', $files, array('class' => 'attachments'));
         $result .= html_writer::end_tag('div');
 
         return $result;
@@ -195,6 +198,25 @@ class qtype_essay_renderer extends qtype_renderer {
             'name' => $qa->get_qt_field_name('attachments'),
             'value' => $pickeroptions->itemid,
         ]);
+
+        $question = $qa->get_question();
+        if ($question->attachmentsrequired > 0) {
+            if ($numallowed == -1) {
+                $hint = get_string(
+                    'attachmentsrequiredminonly',
+                    'qtype_essay',
+                    ['required' => $question->attachmentsrequired],
+                );
+            } else {
+                $hint = get_string(
+                    'attachmentsrequiredmin',
+                    'qtype_essay',
+                    ['required' => $question->attachmentsrequired, 'max' => $numallowed],
+                );
+            }
+            $output .= html_writer::tag('div', $hint, ['class' => 'attachments-count-hint mt-1']);
+        }
+
         $output .= $text;
         $output .= html_writer::end_tag('fieldset');
 
