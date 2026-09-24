@@ -521,4 +521,226 @@ final class question_test extends \advanced_testcase {
         }
         return $attachments;
     }
+
+    /**
+     * Provide test cases for test_get_validation_attachment_error().
+     *
+     * @return array
+     */
+    public static function get_validation_attachment_testcases(): array {
+        return [
+            'attachment error only - 0 uploaded out of 2 required' => [
+                [
+                    'attachmentsrequired' => 2,
+                    'attachments' => 3,
+                    'responserequired' => 1,
+                    'responseformat' => 'editor',
+                ],
+                'Some answer text',
+                0,
+                true,
+                [
+                    get_string('minattachmentsboundary', 'qtype_essay', [
+                        'limit' => 2,
+                        'count' => 0,
+                    ]),
+                ],
+            ],
+            'attachment error only - 1 uploaded out of 2 required' => [
+                [
+                    'attachmentsrequired' => 2,
+                    'attachments' => 3,
+                    'responserequired' => 1,
+                    'responseformat' => 'editor',
+                ],
+                'Some answer text',
+                1,
+                true,
+                [
+                    get_string('minattachmentsboundary', 'qtype_essay', [
+                        'limit' => 2,
+                        'count' => 1,
+                    ]),
+                ],
+            ],
+            'no validation errors when attachments meet requirement' => [
+                [
+                    'attachmentsrequired' => 2,
+                    'attachments' => 3,
+                    'responserequired' => 1,
+                    'responseformat' => 'editor',
+                ],
+                'Some answer text',
+                2,
+                false,
+                [],
+            ],
+            'attachments exceed requirement' => [
+                [
+                    'attachmentsrequired' => 2,
+                    'attachments' => 3,
+                    'responserequired' => 1,
+                    'responseformat' => 'editor',
+                ],
+                'Some answer text',
+                3,
+                false,
+                [],
+            ],
+            'no validation errors when attachments are optional' => [
+                [
+                    'attachmentsrequired' => 0,
+                    'attachments' => 3,
+                    'responserequired' => 0,
+                    'responseformat' => 'editor',
+                ],
+                'Some answer text',
+                0,
+                false,
+                [],
+            ],
+            'noinline attachment error' => [
+                [
+                    'attachmentsrequired' => 1,
+                    'attachments' => 2,
+                    'responserequired' => 0,
+                    'responseformat' => 'noinline',
+                ],
+                '',
+                0,
+                true,
+                [
+                    get_string('minattachmentsboundary', 'qtype_essay', [
+                        'limit' => 1,
+                        'count' => 0,
+                    ]),
+                ],
+            ],
+            'noinline with requirement met' => [
+                [
+                    'attachmentsrequired' => 1,
+                    'attachments' => 2,
+                    'responserequired' => 0,
+                    'responseformat' => 'noinline',
+                ],
+                '',
+                1,
+                false,
+                [],
+            ],
+            'both attachment and word count errors' => [
+                [
+                    'attachmentsrequired' => 2,
+                    'attachments' => 3,
+                    'responserequired' => 1,
+                    'responseformat' => 'plain',
+                    'minwordlimit' => 10,
+                ],
+                'short',
+                0,
+                true,
+                [
+                    get_string('minwordlimitboundary', 'qtype_essay', ['count' => 1, 'limit' => 10]),
+                    get_string('minattachmentsboundary', 'qtype_essay', [
+                        'limit' => 2,
+                        'count' => 0,
+                    ]),
+                ],
+            ],
+            'max word limit exceeded and attachment count not met' => [
+                [
+                    'attachmentsrequired' => 2,
+                    'attachments' => 3,
+                    'responserequired' => 1,
+                    'responseformat' => 'plain',
+                    'maxwordlimit' => 2,
+                ],
+                'one two three four',
+                1,
+                true,
+                [
+                    get_string('maxwordlimitboundary', 'qtype_essay', ['count' => 4, 'limit' => 2]),
+                    get_string('minattachmentsboundary', 'qtype_essay', [
+                        'limit' => 2,
+                        'count' => 1,
+                    ]),
+                ],
+            ],
+            'min word limit not met but attachments met' => [
+                [
+                    'attachmentsrequired' => 2,
+                    'attachments' => 3,
+                    'responserequired' => 1,
+                    'responseformat' => 'plain',
+                    'minwordlimit' => 10,
+                ],
+                'short',
+                2,
+                true,
+                [
+                    get_string('minwordlimitboundary', 'qtype_essay', ['count' => 1, 'limit' => 10]),
+                ],
+            ],
+            'text optional with minwordlimit and attachments met' => [
+                [
+                    'attachmentsrequired' => 2,
+                    'attachments' => 3,
+                    'responserequired' => 0,
+                    'responseformat' => 'editor',
+                    'minwordlimit' => 10,
+                ],
+                '',
+                2,
+                false,
+                [],
+            ],
+        ];
+    }
+
+    /**
+     * Test get_validation_error() with attachment requirements.
+     *
+     * @dataProvider get_validation_attachment_testcases
+     * @covers \qtype_essay_question::get_validation_error
+     * @param array $config the question configuration to set up the question under test.
+     * @param string $answertext the answer text to submit.
+     * @param int $attachmentuploaded the number of attachments uploaded.
+     * @param bool $shouldhaveerror whether we expect validation errors to be returned.
+     * @param array $expectedmessages the expected error messages to be included in the validation error string.
+     */
+    public function test_get_validation_attachment_error(
+        array $config,
+        string $answertext,
+        int $attachmentuploaded,
+        bool $shouldhaveerror,
+        array $expectedmessages
+    ): void {
+        $this->resetAfterTest();
+        $attachments = $this->create_user_and_sample_attachments(4);
+
+        $essay = \test_question_maker::make_an_essay_question();
+        foreach ($config as $property => $value) {
+            $essay->$property = $value;
+        }
+
+        $response = [];
+        if ($answertext !== '') {
+            $response['answer'] = $answertext;
+            $response['answerformat'] = FORMAT_PLAIN;
+        }
+        if ($attachmentuploaded > 0 || isset($config['attachmentsrequired'])) {
+            $response['attachments'] = $attachments[$attachmentuploaded];
+        }
+
+        $error = $essay->get_validation_error($response);
+
+        if ($shouldhaveerror) {
+            $this->assertNotEmpty($error);
+            foreach ($expectedmessages as $message) {
+                $this->assertStringContainsString($message, $error);
+            }
+        } else {
+            $this->assertSame('', $error);
+        }
+    }
 }
