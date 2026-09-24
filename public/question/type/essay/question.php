@@ -180,7 +180,26 @@ class qtype_essay_question extends question_with_responses {
         if ($this->is_complete_response($response)) {
             return '';
         }
-        return $this->check_input_word_count($response['answer'], $response['answerformat'] ?? FORMAT_PLAIN);
+
+        $errors = [];
+
+        $hasinlinetext = array_key_exists('answer', $response) && ($response['answer'] !== '');
+        if ($hasinlinetext || $this->responserequired) {
+            $wordcounterror = $this->check_input_word_count(
+                $response['answer'] ?? '',
+                $response['answerformat'] ?? FORMAT_PLAIN
+            );
+            if ($wordcounterror) {
+                $errors[] = $wordcounterror;
+            }
+        }
+
+        $attachmenterror = $this->check_attachment_count($response);
+        if ($attachmenterror) {
+            $errors[] = $attachmenterror;
+        }
+
+        return implode(' ', $errors);
     }
 
     public function is_gradable_response(array $response) {
@@ -286,6 +305,29 @@ class qtype_essay_question extends question_with_responses {
         } else {
             return null;
         }
+    }
+
+    /**
+     * Check the attachment count and return a message to user
+     * when the number of attachments is less than required.
+     *
+     * @param array $response the student's response to count the attachments in.
+     * @return string|null null if the attachment count is met, otherwise an error message.
+     */
+    private function check_attachment_count(array $response): ?string {
+        if ($this->attachmentsrequired > 0) {
+            $hasattachments = array_key_exists('attachments', $response)
+                && $response['attachments'] instanceof question_response_files;
+            $attachcount = $hasattachments ? count($response['attachments']->get_files()) : 0;
+            if ($attachcount < $this->attachmentsrequired) {
+                return get_string(
+                    'minattachmentsboundary',
+                    'qtype_essay',
+                    ['limit' => $this->attachmentsrequired, 'count' => $attachcount],
+                );
+            }
+        }
+        return null;
     }
 
     /**
