@@ -58,6 +58,7 @@ require_once($CFG->dirroot . '/backup/util/includes/restore_includes.php');
 #[\PHPUnit\Framework\Attributes\CoversFunction('get_next_version')]
 #[\PHPUnit\Framework\Attributes\CoversFunction('question_move_category_to_context')]
 #[\PHPUnit\Framework\Attributes\CoversFunction('move_question_set_references')]
+#[\PHPUnit\Framework\Attributes\CoversFunction('question_extend_settings_navigation')]
 #[\PHPUnit\Framework\Attributes\CoversFunction('question_page_type_list')]
 final class questionlib_test extends \advanced_testcase {
 
@@ -1892,5 +1893,56 @@ final class questionlib_test extends \advanced_testcase {
         $actualpagetypes = question_page_type_list('question-edit', $coursecontext, $modulecontext);
         // Check that the expected page type patterns match those returned for this module.
         $this->assertEquals($expectedpagetypes, array_keys($actualpagetypes));
+    }
+
+    /**
+     * Calling question_extend_settings_navigation should only preserve the cat URL parameter when its context matches.
+     */
+    public function test_question_extend_settings_navigation_cat_context(): void {
+        global $PAGE;
+
+        $this->resetAfterTest();
+        $this->setAdminUser();
+
+        $generator = $this->getDataGenerator();
+        $questiongenerator = $generator->get_plugin_generator('core_question');
+
+        $course = $generator->create_course();
+        $quiz = $generator->create_module('quiz', ['course' => $course->id]);
+        $qbank = $generator->create_module('qbank', ['course' => $course->id]);
+
+        $quizcontext = module::instance($quiz->cmid);
+        $qbankcontext = module::instance($qbank->cmid);
+
+        $quizcat = $questiongenerator->create_question_category(['contextid' => $quizcontext->id]);
+        $qbankcat = $questiongenerator->create_question_category(['contextid' => $qbankcontext->id]);
+
+        $quizcm = get_coursemodule_from_id('quiz', $quiz->cmid);
+
+        // When cat belongs to the quiz context, it should be preserved in the question bank links.
+        $PAGE = new \moodle_page();
+        $PAGE->set_cm($quizcm, $course);
+        $matchingcat = $quizcat->id . ',' . $quizcontext->id;
+        $PAGE->set_url('/question/edit.php', ['cmid' => $quiz->cmid, 'cat' => $matchingcat]);
+
+        $quiznode = \navigation_node::create('Quiz', null, \navigation_node::TYPE_SETTING);
+        $questionnode = question_extend_settings_navigation($quiznode, $quizcontext);
+        $this->assertEquals($matchingcat, $questionnode->action->param('cat'));
+        $exportnode = $questionnode->get('export');
+        $this->assertNotFalse($exportnode);
+        $this->assertEquals($matchingcat, $exportnode->action->param('cat'));
+
+        // When cat belongs to a different context (e.g. a shared qbank), it must be omitted from the quiz links.
+        $PAGE = new \moodle_page();
+        $PAGE->set_cm($quizcm, $course);
+        $mismatchedcat = $qbankcat->id . ',' . $qbankcontext->id;
+        $PAGE->set_url('/mod/quiz/edit.php', ['cmid' => $quiz->cmid, 'cat' => $mismatchedcat]);
+
+        $quiznode = \navigation_node::create('Quiz', null, \navigation_node::TYPE_SETTING);
+        $questionnode = question_extend_settings_navigation($quiznode, $quizcontext);
+        $this->assertNull($questionnode->action->param('cat'));
+        $exportnode = $questionnode->get('export');
+        $this->assertNotFalse($exportnode);
+        $this->assertNull($exportnode->action->param('cat'));
     }
 }
