@@ -240,7 +240,16 @@ class view {
         }
 
         // Default filter condition.
-        if (!isset($params['filter']) && isset($params['cat'])) {
+        if (!isset($params['filter']) && !empty($params['cat'])) {
+            // Prevent loading questions from a category outside this bank's contexts.
+            if (!str_contains((string) $params['cat'], ',')) {
+                throw new \moodle_exception('invalidcategory', 'question');
+            }
+            [, $contextid] = category_condition::validate_category_param($params['cat']);
+            $contextidlist = array_map('intval', array_column($this->contexts->all(), 'id'));
+            if ($contextid && !in_array((int) $contextid, $contextidlist, true)) {
+                throw new \moodle_exception('invalidcategory', 'question');
+            }
             $params['filter']  = filter_condition_manager::get_default_filter($params['cat']);
             $params['jointype'] = datafilter::JOINTYPE_ALL;
         }

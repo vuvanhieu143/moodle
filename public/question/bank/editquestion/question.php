@@ -267,8 +267,10 @@ if ($mform->is_cancelled()) {
         $contextid = $category->contextid;
     }
 
-    // Ensure we redirect back to the category the question is being saved into.
-    $returnurl->param('category', $fromform->category);
+    // Only redirect to the saved category when returning to the same question bank page.
+    if ((int) $newcontextid === (int) $thiscontext->id && $returnurl->compare($questionbankurl, URL_MATCH_BASE)) {
+        $returnurl->param('category', $fromform->category);
+    }
 
     // We are actually saving the question.
     if (!empty($question->id)) {
