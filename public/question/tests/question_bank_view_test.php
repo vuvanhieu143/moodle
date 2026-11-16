@@ -104,4 +104,36 @@ final class question_bank_view_test extends \advanced_testcase {
         $this->assertStringContainsString('This is the latest version</a>', $html);
         $this->assertStringNotContainsString('Example question</a>', $html);
     }
+
+    /**
+     * Test that constructing a question bank view throws an exception when the cat parameter is from another context.
+     */
+    public function test_view_throws_invalidcategory_for_other_context(): void {
+        $this->resetAfterTest();
+        $this->setAdminUser();
+        $generator = $this->getDataGenerator();
+        $questiongenerator = $generator->get_plugin_generator('core_question');
+
+        $course = $generator->create_course();
+        $quiz = $generator->create_module('quiz', ['course' => $course->id]);
+        $qbank = $generator->create_module('qbank', ['course' => $course->id]);
+
+        $quizcontext = \context_module::instance($quiz->cmid);
+        $qbankcontext = \context_module::instance($qbank->cmid);
+        $quizcm = get_coursemodule_from_instance('quiz', $quiz->id);
+
+        $qbankcat = $questiongenerator->create_question_category(['contextid' => $qbankcontext->id]);
+
+        $contexts = new question_edit_contexts($quizcontext);
+        $params = [
+            'qpage' => 0,
+            'qperpage' => 20,
+            'cat' => $qbankcat->id . ',' . $qbankcontext->id,
+            'tabname' => 'questions',
+        ];
+
+        $this->expectException(\moodle_exception::class);
+        $this->expectExceptionMessage(get_string('invalidcategory', 'question'));
+        new \core_question\local\bank\view($contexts, new \moodle_url('/'), $course, $quizcm, $params);
+    }
 }

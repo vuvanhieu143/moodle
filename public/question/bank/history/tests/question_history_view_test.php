@@ -101,7 +101,7 @@ final class question_history_view_test extends \advanced_testcase {
 
         // Create a question in the default category.
         $contexts = new \core_question\local\bank\question_edit_contexts($context);
-        $cat = $questiongenerator->create_question_category();
+        $cat = $questiongenerator->create_question_category(['contextid' => $context->id]);
         $questiondata1 = $questiongenerator->create_question('numerical', null,
             ['name' => 'First version', 'category' => $cat->id]);
 
