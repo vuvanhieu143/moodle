@@ -45,7 +45,7 @@ class edit_grading_page implements renderable, templatable {
     }
 
     public function export_for_template(renderer_base $output) {
-        global $PAGE;
+        global $PAGE, $OUTPUT;
         /** @var edit_renderer $editrenderer */
         $editrenderer = $PAGE->get_renderer('mod_quiz', 'edit');
 
@@ -59,6 +59,8 @@ class edit_grading_page implements renderable, templatable {
         ];
         $selectdgradeitemchoices = [];
         $gradeitems = [];
+        $url = new \moodle_url('#');
+        $gradeitemsfeedbacks = $this->structure->get_grade_item_feedbacks();
         foreach ($this->structure->get_grade_items() as $gradeitem) {
             $gradeitem = clone($gradeitem);
             unset($gradeitem->quizid);
@@ -67,6 +69,61 @@ class edit_grading_page implements renderable, templatable {
             $gradeitem->summarks = $gradeitem->isused ?
                     $this->structure->formatted_grade_item_sum_marks($gradeitem->id) :
                     '-';
+            $gradeitemsfeedback = $gradeitemsfeedbacks[$gradeitem->id] ?? [];
+            // Load the feedback detail data for each grade item.
+            $gradeitem->overallfeedbacks = $this->structure->generate_overallfeedback_detail_data(
+                $gradeitem->id,
+                $gradeitemsfeedback
+            );
+
+            if (!$gradeitem->isused) {
+                $gradeitem->deletegradeitemurl = \html_writer::link(
+                    $url,
+                    $OUTPUT->pix_icon(
+                        't/delete',
+                        get_string('delete'),
+                        'core'
+                    ) . get_string('delete'),
+                    [
+                        'class' => 'dropdown-item',
+                        'aria-label' => get_string(
+                            'gradeitemdelete',
+                            'quiz',
+                            $gradeitem->name
+                        ),
+                        'role' => 'menuitem',
+                        'data-action-delete' => 1,
+                    ]
+                );
+            }
+
+            if (count($gradeitemsfeedback) > 0) {
+                if (count($gradeitemsfeedback) === 1) {
+                    $leveltext = get_string('overallfeedback1range', 'quiz', 1);
+                } else {
+                    $leveltext = get_string('overallfeedbacknranges', 'quiz', count($gradeitemsfeedback));
+                }
+                $overallfeedbacktext = get_string('editoverallfeedback', 'quiz');
+                $overallfeedbacklabel = $OUTPUT->pix_icon('t/edit', $overallfeedbacktext, 'core') .
+                    $overallfeedbacktext;
+                $gradeitem->totaloverallfeedback = $leveltext;
+            } else {
+                $overallfeedbacktext = get_string('addoverallfeedback', 'quiz');
+                $overallfeedbacklabel = $OUTPUT->pix_icon('t/add', $overallfeedbacktext, 'core') .
+                    $overallfeedbacktext;
+            }
+
+            $gradeitem->overallfeedbackurl = \html_writer::link(
+                $url,
+                $overallfeedbacklabel,
+                [
+                    'class' => 'dropdown-item',
+                    'aria-label' => $overallfeedbacktext,
+                    'role' => 'menuitem',
+                    'data-contextid' => $this->structure->get_context()->id,
+                    'data-action-add-feedback' => 1,
+                ]
+            );
 
             $gradeitems[] = $gradeitem;
 
@@ -111,6 +168,7 @@ class edit_grading_page implements renderable, templatable {
 
         return [
             'quizid' => $this->structure->get_quizid(),
+            'contextid' => $this->structure->get_context()->id,
             'hasgradeitems' => !empty($gradeitems),
             'gradeitems' => $gradeitems,
             'hasslots' => $this->structure->has_questions(),
