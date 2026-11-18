@@ -87,4 +87,41 @@ final class restore_quiz_grade_items_test extends restore_date_testcase {
         $this->assertNull($structure->get_slot_by_number(1)->quizgradeitemid);
         $this->assertEquals(end($quizgradeitems)->id, $structure->get_slot_by_number(2)->quizgradeitemid);
     }
+
+    /**
+     * Test that overall feedbacks for quiz grade items are backed up and restored.
+     */
+    public function test_restore_quiz_grade_item_feedbacks(): void {
+        global $DB;
+        $this->resetAfterTest();
+
+        $generator = $this->getDataGenerator();
+        /** @var mod_quiz_generator $quizgen */
+        $quizgen = $generator->get_plugin_generator('mod_quiz');
+
+        $course = $generator->create_course();
+        $quiz = $quizgen->create_instance(['course' => $course->id]);
+        $listeninggrade = $quizgen->create_grade_item(['quizid' => $quiz->id, 'name' => 'Listening']);
+
+        $DB->insert_record('quiz_grade_item_feedbacks', (object) [
+            'quizid' => $quiz->id,
+            'gradeitemid' => $listeninggrade->id,
+            'feedbacktext' => 'Excellent listening!',
+            'feedbacktextformat' => FORMAT_HTML,
+            'mingrade' => 0.5,
+            'maxgrade' => 2,
+        ]);
+
+        // Back up and restore the course.
+        $newcourseid = $this->backup_and_restore($course);
+
+        $newquiz = $DB->get_record('quiz', ['course' => $newcourseid]);
+        $structure = quiz_settings::create($newquiz->id)->get_structure();
+        $restoreditems = array_values($structure->get_grade_items());
+        $this->assertCount(1, $restoreditems);
+        $restoredfeedbacks = $structure->get_grade_item_feedbacks()[$restoreditems[0]->id] ?? [];
+        $this->assertCount(1, $restoredfeedbacks);
+        $this->assertEquals('Excellent listening!', $restoredfeedbacks[0]->feedbacktext);
+        $this->assertEquals(0.5, (float) $restoredfeedbacks[0]->mingrade);
+    }
 }
