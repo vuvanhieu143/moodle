@@ -321,4 +321,13 @@ $functions = [
         'type' => 'read',
         'ajax' => true,
     ],
+
+    'mod_quiz_save_overall_feedback_per_grade_item' => [
+        'classname' => 'mod_quiz\external\save_overall_feedback_per_grade_item',
+        'description' => 'For each quiz with grade items already set up, validate and save the overall feedback for ' .
+            'each grade item.',
+        'type' => 'write',
+        'capabilities' => 'mod/quiz:manage',
+        'ajax' => true,
+    ],
 ];

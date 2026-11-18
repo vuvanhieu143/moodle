@@ -42,6 +42,8 @@ use mod_quiz\question\qubaids_for_users_attempts;
 use core_question\statistics\questions\all_calculated_for_qubaid_condition;
 use mod_quiz\quiz_attempt;
 use mod_quiz\quiz_settings;
+use mod_quiz\form\overallfeedback_form;
+use mod_quiz\form\single_overallfeedback_form;
 
 require_once($CFG->dirroot . '/calendar/lib.php');
 require_once($CFG->dirroot . '/question/editlib.php');
@@ -208,6 +210,7 @@ function quiz_delete_instance($id) {
     $DB->delete_records('quiz_sections', ['quizid' => $quiz->id]);
 
     $DB->delete_records('quiz_feedback', ['quizid' => $quiz->id]);
+    $DB->delete_records('quiz_grade_item_feedbacks', ['quizid' => $quiz->id]);
 
     access_manager::delete_settings($quiz);
 
@@ -1160,6 +1163,7 @@ function quiz_after_add_or_update($quiz) {
 
     // Save the feedback.
     $DB->delete_records('quiz_feedback', ['quizid' => $quiz->id]);
+    $DB->delete_records('quiz_grade_item_feedbacks', ['quizid' => $quiz->id]);
 
     for ($i = 0; $i <= $quiz->feedbackboundarycount; $i++) {
         $feedback = new stdClass();
@@ -1966,13 +1970,20 @@ function quiz_pluginfile($course, $cm, $context, $filearea, $args, $forcedownloa
     }
 
     // The 'intro' area is served by pluginfile.php.
-    $fileareas = ['feedback'];
+    $fileareas = ['feedback', 'grade_item_feedback'];
     if (!in_array($filearea, $fileareas)) {
         return false;
     }
 
     $feedbackid = (int)array_shift($args);
-    if (!$feedback = $DB->get_record('quiz_feedback', ['id' => $feedbackid])) {
+    if ($filearea === 'feedback' && !$feedback = $DB->get_record('quiz_feedback', ['id' => $feedbackid])) {
+        return false;
+    }
+
+    if (
+        $filearea === 'grade_item_feedback' &&
+        !$feedback = $DB->get_record('quiz_grade_item_feedbacks', ['id' => $feedbackid, 'quizid' => $quiz->id])
+    ) {
         return false;
     }
 
@@ -2814,6 +2825,109 @@ function mod_quiz_output_fragment_question_data(array $args): string {
     ob_start();
     $questionbank->display_question_list();
     return ob_get_clean();
+}
+
+/**
+ * Grade item data fragment to get the overall feedback html via ajax call.
+ *
+ * @param array $args Needed data to generate form.
+ * @return string Form html string.
+ */
+function mod_quiz_output_fragment_load_overall_feedback_data(array $args): string {
+    global $DB, $OUTPUT;
+    // Return if there is no args.
+    if (empty($args)) {
+        return '';
+    }
+
+    require_capability('mod/quiz:manage', $args['context']);
+
+    $quizid = clean_param($args['quizId'], PARAM_INT);
+    $gradeitemid = clean_param($args['gradeItemId'], PARAM_INT);
+    $quizsettings = quiz_settings::create($quizid);
+    if ($quizsettings->get_context()->id !== $args['context']->id) {
+        throw new \coding_exception('Context mismatch');
+    }
+    $quizsettings->get_structure()->verify_grade_item_is_ours($gradeitemid);
+    $quizobj = $quizsettings->get_quiz();
+
+    $overallfeedbacks = $DB->get_records(
+        'quiz_grade_item_feedbacks',
+        [
+            'quizid' => $quizid,
+            'gradeitemid' => $gradeitemid,
+        ],
+        'maxgrade DESC'
+    );
+    $args['feedbacks'] = $overallfeedbacks;
+    $args['grade'] = $quizobj->grade;
+    $form = new overallfeedback_form(null, $args);
+    $form->set_data(['grade' => $quizobj->grade]);
+    $data = [
+        'body' => $form->render(),
+    ];
+
+    return $OUTPUT->render_from_template('mod_quiz/overallfeedback_form', $data);
+}
+
+/**
+ * Grade item data fragment to get the overall feedback detail html via ajax call.
+ *
+ * @param array $args Needed data to generate form.
+ * @return string Form html string.
+ */
+function mod_quiz_output_fragment_load_overall_feedback_detail(array $args): string {
+    global $DB, $OUTPUT;
+    // Return if there is no args.
+    if (empty($args)) {
+        return '';
+    }
+
+    require_capability('mod/quiz:manage', $args['context']);
+
+    $quizid = clean_param($args['quizId'], PARAM_INT);
+    $gradeitemid = clean_param($args['gradeItemId'], PARAM_INT);
+    $quizsettings = quiz_settings::create($quizid);
+    if ($quizsettings->get_context()->id !== $args['context']->id) {
+        throw new \coding_exception('Context mismatch');
+    }
+    $structure = $quizsettings->get_structure();
+    $structure->verify_grade_item_is_ours($gradeitemid);
+
+    $overallfeedbacks = $DB->get_records(
+        'quiz_grade_item_feedbacks',
+        [
+            'quizid' => $quizid,
+            'gradeitemid' => $gradeitemid,
+        ],
+        'maxgrade DESC'
+    );
+    $data = $structure->generate_overallfeedback_detail_data($gradeitemid, $overallfeedbacks);
+
+    return $OUTPUT->render_from_template('mod_quiz/overallfeedback_detail_table', $data);
+}
+
+/**
+ * Single overall feedback form fragment.
+ *
+ * @param array $args Needed data to generate form.
+ * @return string Form html string.
+ */
+function mod_quiz_output_fragment_load_overall_feedback_form(array $args): string {
+    // Return if there is no args.
+    if (empty($args)) {
+        return '';
+    }
+
+    require_capability('mod/quiz:manage', $args['context']);
+
+    $afterno = clean_param($args['after'], PARAM_INT);
+    $editornumber = clean_param($args['no'], PARAM_INT);
+    $gradeitemid = clean_param($args['gradeitemid'], PARAM_INT);
+    $singleform = new single_overallfeedback_form(null, ['after' => $afterno, 'context' => $args['context'],
+        'editorno' => $editornumber, 'gradeitemid' => $gradeitemid]);
+
+    return $singleform->render();
 }
 
 /**
